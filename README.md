@@ -72,3 +72,16 @@ If Vercel fails with `next: not found`, this repo now includes `vercel.json` to 
 - `buildCommand: npm run build`
 
 and `package.json` includes Node/npm metadata for more consistent installs on Vercel.
+
+
+### Fix for `Unexpected non-whitespace character after JSON`
+
+If Vercel shows `/vercel/path0/package.json: Unexpected non-whitespace character after JSON`, your `package.json` in that deployed commit is malformed (often from a merge conflict marker).
+
+Run:
+
+```bash
+npm run validate:json
+```
+
+This repo now includes a GitHub Action that checks JSON syntax on PRs and pushes to prevent this from happening again.
