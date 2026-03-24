@@ -19,7 +19,7 @@ Copy `.env.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `ALMOSTCRACKD_API_URL` (default: `https://api.almostcrackd.ai`)
-- `ALMOSTCRACKD_API_KEY` (optional unless your API requires auth)
+- `ALMOSTCRACKD_API_KEY`
 
 ## Setup
 
@@ -49,5 +49,5 @@ I cannot access your GitHub/Vercel accounts directly from this environment, so d
 ## What I still need from you
 
 - Confirm exact Assignment 5 endpoint path if it differs from `/captions/generate`.
-- Provide Supabase project credentials and (if required) an AlmostCrackd API key.
+- Provide the API key and Supabase project credentials.
 - Confirm where image test set URLs are stored (if you want a picker rather than manual URL input).

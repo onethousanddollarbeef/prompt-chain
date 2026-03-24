@@ -1,7 +1,7 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -26,79 +26,20 @@ export default function Page() {
   const [apiResult, setApiResult] = useState<string>('');
   const [status, setStatus] = useState<string>('');
 
-  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
-
   const selectedFlavor = useMemo(
     () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
     [flavors, selectedFlavorId]
   );
 
-  const loadSteps = useCallback(
-    async (flavorId: string) => {
-      if (!supabase) return;
+  useEffect(() => {
+    const savedTheme = (localStorage.getItem('theme-mode') as ThemeMode | null) ?? 'system';
+    setTheme(savedTheme);
+    document.documentElement.dataset.theme = savedTheme;
+    void init();
+  }, []);
 
-      const { data, error } = await supabase
-        .from('humor_flavor_steps')
-        .select('*')
-        .eq('flavor_id', flavorId)
-        .order('position', { ascending: true });
-      if (error) {
-        setStatus(error.message);
-        return;
-      }
-      setSteps(data ?? []);
-    },
-    [supabase]
-  );
-
-  const loadRuns = useCallback(
-    async (flavorId: string) => {
-      if (!supabase) return;
-
-      const { data, error } = await supabase
-        .from('humor_flavor_runs')
-        .select('*')
-        .eq('flavor_id', flavorId)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (error) {
-        setStatus(error.message);
-        return;
-      }
-      setRuns(data ?? []);
-    },
-    [supabase]
-  );
-
-  const loadFlavors = useCallback(async () => {
-    if (!supabase) return;
-
-    const { data, error } = await supabase
-      .from('humor_flavors')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) {
-      setStatus(error.message);
-      return;
-    }
-    setFlavors(data ?? []);
-
-    if (data?.[0] && !selectedFlavorId) {
-      setSelectedFlavorId(data[0].id);
-      await loadSteps(data[0].id);
-      await loadRuns(data[0].id);
-    }
-  }, [loadRuns, loadSteps, selectedFlavorId, supabase]);
-
-  const init = useCallback(async () => {
+  async function init() {
     setLoading(true);
-
-    if (!supabase) {
-      setStatus('Missing Supabase environment variables.');
-      setLoading(false);
-      return;
-    }
-
     const {
       data: { user }
     } = await supabase.auth.getUser();
@@ -124,14 +65,52 @@ export default function Page() {
     setProfile(profileData);
     await loadFlavors();
     setLoading(false);
-  }, [loadFlavors, supabase]);
+  }
 
-  useEffect(() => {
-    const savedTheme = (localStorage.getItem('theme-mode') as ThemeMode | null) ?? 'system';
-    setTheme(savedTheme);
-    document.documentElement.dataset.theme = savedTheme;
-    void init();
-  }, [init]);
+  async function loadFlavors() {
+    const { data, error } = await supabase
+      .from('humor_flavors')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      setStatus(error.message);
+      return;
+    }
+    setFlavors(data ?? []);
+
+    if (data?.[0] && !selectedFlavorId) {
+      setSelectedFlavorId(data[0].id);
+      await loadSteps(data[0].id);
+      await loadRuns(data[0].id);
+    }
+  }
+
+  async function loadSteps(flavorId: string) {
+    const { data, error } = await supabase
+      .from('humor_flavor_steps')
+      .select('*')
+      .eq('flavor_id', flavorId)
+      .order('position', { ascending: true });
+    if (error) {
+      setStatus(error.message);
+      return;
+    }
+    setSteps(data ?? []);
+  }
+
+  async function loadRuns(flavorId: string) {
+    const { data, error } = await supabase
+      .from('humor_flavor_runs')
+      .select('*')
+      .eq('flavor_id', flavorId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (error) {
+      setStatus(error.message);
+      return;
+    }
+    setRuns(data ?? []);
+  }
 
   function isAdmin() {
     return Boolean(profile?.is_superadmin || profile?.is_matrix_admin);
@@ -145,7 +124,7 @@ export default function Page() {
 
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !profile || !newFlavorName.trim()) return;
+    if (!profile || !newFlavorName.trim()) return;
 
     const { error } = await supabase.from('humor_flavors').insert({
       name: newFlavorName.trim(),
@@ -165,8 +144,6 @@ export default function Page() {
   }
 
   async function updateFlavor(flavor: HumorFlavor) {
-    if (!supabase) return;
-
     const newName = prompt('New flavor name', flavor.name);
     if (!newName) return;
 
@@ -183,8 +160,6 @@ export default function Page() {
   }
 
   async function deleteFlavor(flavor: HumorFlavor) {
-    if (!supabase) return;
-
     if (!confirm(`Delete flavor "${flavor.name}"?`)) return;
     const { error } = await supabase.from('humor_flavors').delete().eq('id', flavor.id);
     if (error) {
@@ -199,7 +174,7 @@ export default function Page() {
 
   async function createStep(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
+    if (!selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
 
     const nextPos = steps.length ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
     const { error } = await supabase.from('humor_flavor_steps').insert({
@@ -219,8 +194,6 @@ export default function Page() {
   }
 
   async function updateStep(step: HumorFlavorStep) {
-    if (!supabase) return;
-
     const title = prompt('Step title', step.title);
     if (!title) return;
     const instruction = prompt('Step instruction', step.instruction);
@@ -239,8 +212,6 @@ export default function Page() {
   }
 
   async function deleteStep(step: HumorFlavorStep) {
-    if (!supabase) return;
-
     if (!confirm(`Delete step "${step.title}"?`)) return;
 
     const { error } = await supabase.from('humor_flavor_steps').delete().eq('id', step.id);
@@ -252,8 +223,6 @@ export default function Page() {
   }
 
   async function moveStep(step: HumorFlavorStep, direction: -1 | 1) {
-    if (!supabase) return;
-
     const currentIndex = steps.findIndex((s) => s.id === step.id);
     const targetIndex = currentIndex + direction;
     if (targetIndex < 0 || targetIndex >= steps.length) return;
@@ -280,7 +249,7 @@ export default function Page() {
 
   async function testFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavor || !imageUrl.trim()) return;
+    if (!selectedFlavor || !imageUrl.trim()) return;
 
     const res = await fetch('/api/generate-captions', {
       method: 'POST',
@@ -311,15 +280,6 @@ export default function Page() {
 
   if (loading) {
     return <main className="container">Loading...</main>;
-  }
-
-  if (!supabase) {
-    return (
-      <main className="container">
-        <h1>Humor Flavor Prompt Chain</h1>
-        <p>Missing Supabase environment variables.</p>
-      </main>
-    );
   }
 
   if (!isAdmin()) {
