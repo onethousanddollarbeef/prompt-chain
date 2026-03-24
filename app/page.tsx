@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseBrowserClient, getSupabaseEnvInfo } from '@/lib/supabase';
+import { getSupabaseBrowserClient } from '@/lib/supabase';
 import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
 
 type ThemeMode = 'light' | 'dark' | 'system';
