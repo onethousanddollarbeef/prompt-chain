@@ -11,6 +11,7 @@ This project is a Next.js + Supabase admin tool for managing humor flavors and o
 - Store and review generated caption runs for each flavor.
 - Light / dark / system theme mode.
 - API test harness that calls Assignment 5 REST API.
+- Explicit Google login/logout controls in UI (no silent auto-deny in incognito).
 
 ## Environment variables
 
@@ -19,7 +20,7 @@ Copy `.env.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `ALMOSTCRACKD_API_URL` (default: `https://api.almostcrackd.ai`)
-- `ALMOSTCRACKD_API_KEY`
+- `ALMOSTCRACKD_API_KEY` (optional unless your API requires auth)
 
 ## Setup
 
@@ -49,5 +50,16 @@ I cannot access your GitHub/Vercel accounts directly from this environment, so d
 ## What I still need from you
 
 - Confirm exact Assignment 5 endpoint path if it differs from `/captions/generate`.
-- Provide the API key and Supabase project credentials.
+- Provide Supabase project credentials and (if required) an AlmostCrackd API key.
 - Confirm where image test set URLs are stored (if you want a picker rather than manual URL input).
+
+## Merge conflict tip (GitHub UI)
+
+When GitHub asks **Current** vs **Incoming**:
+
+- **Current change** = code already on the base branch (usually `main`).
+- **Incoming change** = code from the PR branch you are merging.
+
+For this project, if you want the newest prompt-chain updates from the PR branch, prefer **Incoming change** for `app/page.tsx` and related app files, then verify the final file still contains the deployment marker text.
+
+If unsure, choose **Compare changes** and keep both sections manually where possible.

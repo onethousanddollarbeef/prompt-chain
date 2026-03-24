@@ -23,13 +23,6 @@ export async function POST(req: NextRequest) {
     const apiUrl = process.env.ALMOSTCRACKD_API_URL ?? 'https://api.almostcrackd.ai';
     const apiKey = process.env.ALMOSTCRACKD_API_KEY;
 
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'Missing ALMOSTCRACKD_API_KEY in environment.' },
-        { status: 500 }
-      );
-    }
-
     const orderedSteps = [...(body.steps ?? [])].sort((a, b) => a.position - b.position);
 
     const promptChain = orderedSteps.map((step) => ({
@@ -42,7 +35,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
       },
       body: JSON.stringify({
         image_url: body.imageUrl,
