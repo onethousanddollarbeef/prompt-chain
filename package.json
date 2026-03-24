@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "validate:json": "node scripts/validate-json.mjs"
+    "lint": "next lint"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
@@ -27,4 +28,5 @@
     "node": ">=20.0.0"
   },
   "packageManager": "npm@10"
+  }
 }
