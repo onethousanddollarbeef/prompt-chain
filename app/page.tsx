@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { getSupabaseBrowserClient, getSupabaseEnvInfo } from '@/lib/supabase';
+import { getSupabaseBrowserClient } from '@/lib/supabase';
 import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -29,7 +29,6 @@ export default function Page() {
   const [status, setStatus] = useState<string>('');
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
-  const envInfo = useMemo(() => getSupabaseEnvInfo(), []);
 
   const selectedFlavor = useMemo(
     () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
@@ -204,54 +203,6 @@ export default function Page() {
     setUser(null);
     setProfile(null);
     setStatus('Logged out.');
-  }
-
-
-  async function quickGenerateCaptions(e: FormEvent) {
-    e.preventDefault();
-    if (!imageUrl.trim()) {
-      setStatus('Please provide an image URL.');
-      return;
-    }
-
-    const res = await fetch('/api/generate-captions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        flavor: {
-          id: 'quick-start-flavor',
-          name: 'Quick Start Flavor',
-          description: 'Fallback local mode without Supabase'
-        },
-        steps: [
-          {
-            position: 1,
-            title: 'Describe image',
-            instruction: 'Describe what is in the image in plain text.'
-          },
-          {
-            position: 2,
-            title: 'Find humor angle',
-            instruction: 'Take the description and make a funny observation.'
-          },
-          {
-            position: 3,
-            title: 'Generate captions',
-            instruction: 'Produce five short funny captions.'
-          }
-        ],
-        imageUrl: imageUrl.trim()
-      })
-    });
-
-    const payload = (await res.json()) as { error?: string; data?: unknown };
-    if (!res.ok) {
-      setStatus(payload.error ?? 'Generation failed');
-      return;
-    }
-
-    setApiResult(JSON.stringify(payload.data, null, 2));
-    setStatus('Quick caption generation complete.');
   }
 
   async function createFlavor(e: FormEvent) {
@@ -429,27 +380,6 @@ export default function Page() {
       <main className="container">
         <h1>Humor Flavor Prompt Chain</h1>
         <p>Missing Supabase environment variables.</p>
-        <p className="small">
-          NEXT_PUBLIC_SUPABASE_URL set: {String(envInfo.hasSupabaseUrl)} |
-          NEXT_PUBLIC_SUPABASE_ANON_KEY set: {String(envInfo.hasSupabaseAnonKey)}
-        </p>
-        <section className="card">
-          <h2>Quick test mode (no Supabase)</h2>
-          <p className="small">
-            You can still iterate like Assignment 5 by testing caption generation directly with an image URL.
-          </p>
-          <form className="grid" onSubmit={quickGenerateCaptions}>
-            <input
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="Image URL"
-              required
-            />
-            <button type="submit">Generate captions (quick mode)</button>
-          </form>
-          {status && <p className="small">{status}</p>}
-          {apiResult && <pre>{apiResult}</pre>}
-        </section>
       </main>
     );
   }

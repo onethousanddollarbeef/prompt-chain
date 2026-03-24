@@ -15,10 +15,3 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
   client = createClient(supabaseUrl, supabaseAnonKey);
   return client;
 }
-
-export function getSupabaseEnvInfo() {
-  return {
-    hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-    hasSupabaseAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-  };
-}
