@@ -63,3 +63,12 @@ When GitHub asks **Current** vs **Incoming**:
 For this project, if you want the newest prompt-chain updates from the PR branch, prefer **Incoming change** for `app/page.tsx` and related app files, then verify the final file still contains the deployment marker text.
 
 If unsure, choose **Compare changes** and keep both sections manually where possible.
+
+## Vercel deployment reliability
+
+If Vercel fails with `next: not found`, this repo now includes `vercel.json` to force:
+
+- `installCommand: npm install`
+- `buildCommand: npm run build`
+
+and `package.json` includes Node/npm metadata for more consistent installs on Vercel.
