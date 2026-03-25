@@ -11,9 +11,7 @@ import type {
   Profile,
 } from "@/lib/types";
 
-type ThemeMode = "light" | "dark" | "system";
 type AdminPanel =
-  | "theme"
   | "create-flavor"
   | "flavors"
   | "steps"
@@ -34,7 +32,6 @@ export default function Page() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState<ThemeMode>("system");
   const [activePanel, setActivePanel] = useState<AdminPanel>("create-flavor");
 
   const [flavors, setFlavors] = useState<HumorFlavor[]>([]);
@@ -251,10 +248,6 @@ export default function Page() {
   }, [loadProfile, supabase]);
 
   useEffect(() => {
-    const savedTheme =
-      (localStorage.getItem("theme-mode") as ThemeMode | null) ?? "system";
-    setTheme(savedTheme);
-    document.documentElement.dataset.theme = savedTheme;
     let cleanup: (() => void) | undefined;
     void init().then((unsub) => {
       cleanup = unsub;
@@ -264,12 +257,6 @@ export default function Page() {
 
   function isAdmin() {
     return Boolean(profile?.is_superadmin || profile?.is_matrix_admin);
-  }
-
-  function setThemeMode(mode: ThemeMode) {
-    setTheme(mode);
-    localStorage.setItem("theme-mode", mode);
-    document.documentElement.dataset.theme = mode;
   }
 
   async function loginWithGoogle() {
@@ -741,35 +728,6 @@ export default function Page() {
       {isAdmin() && (
         <div className="admin-layout">
           <div>
-            {activePanel === "theme" && (
-              <section className="card" id="theme">
-                <h2>🎨 Theme</h2>
-                <div className="row">
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode("light")}
-                    disabled={theme === "light"}
-                  >
-                    Light
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode("dark")}
-                    disabled={theme === "dark"}
-                  >
-                    Dark
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode("system")}
-                    disabled={theme === "system"}
-                  >
-                    System
-                  </button>
-                </div>
-              </section>
-            )}
-
             {activePanel === "create-flavor" && (
               <section className="card" id="create-flavor">
                 <h2>✨ Create humor flavor</h2>
@@ -980,11 +938,6 @@ export default function Page() {
                     {isGenerating ? "Generating captions..." : "Generate captions"}
                   </button>
                 </form>
-                {!runsTableAvailable && (
-                  <p className="small">
-                    Note: <code>humor_flavor_runs</code> is missing in this project, so generated runs will not be persisted.
-                  </p>
-                )}
                 {parsedCaptions.length > 0 && (
                   <div className="grid">
                     <h3>Generated captions</h3>
@@ -995,7 +948,6 @@ export default function Page() {
                     ))}
                   </div>
                 )}
-                {apiResult && <pre>{apiResult}</pre>}
               </section>
             )}
 
@@ -1022,13 +974,6 @@ export default function Page() {
           <aside className="card steps-key">
             <h3>📂 Sections</h3>
             <div className="tabs-list">
-              <button
-                type="button"
-                onClick={() => setActivePanel("theme")}
-                title="Theme settings"
-              >
-                🎨 Theme
-              </button>
               <button
                 type="button"
                 onClick={() => setActivePanel("create-flavor")}
