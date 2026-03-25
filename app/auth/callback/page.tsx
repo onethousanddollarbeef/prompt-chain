@@ -13,6 +13,7 @@ export default function AuthCallbackPage() {
         setMessage(
           'Missing env vars: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.'
         );
+        setMessage('Missing Supabase environment variables.');
         return;
       }
 
@@ -59,5 +60,9 @@ export default function AuthCallbackPage() {
       <h1>Auth callback</h1>
       <p>{message}</p>
     </main>
+      <main className="container">
+        <h1>Auth callback</h1>
+        <p>{message}</p>
+      </main>
   );
 }
