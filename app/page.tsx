@@ -58,6 +58,55 @@ export default function Page() {
     () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
     [flavors, selectedFlavorId],
   );
+  const hasImageInput = Boolean(selectedFile || imageUrl.trim());
+  const canGenerate =
+      Boolean(selectedFlavorId) &&
+      hasImageInput &&
+      !isGenerating;
+  const parsedCaptions = useMemo(() => {
+    if (!apiResult) return [];
+    try {
+      const payload = JSON.parse(apiResult) as unknown;
+      if (Array.isArray(payload)) {
+        return payload
+            .map((item) => {
+              if (!item || typeof item !== "object") return "";
+              const obj = item as Record<string, unknown>;
+              const value = obj.content ?? obj.caption ?? obj.text;
+              return typeof value === "string" ? value : "";
+            })
+            .filter((text) => text.trim().length > 0);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }, [apiResult]);
+
+  function normalizeFlavorRow(row: Record<string, unknown>): HumorFlavor {
+    return {
+      id: String(row.id ?? ""),
+      name: String(row.name ?? row.flavor_name ?? row.title ?? "(unnamed flavor)"),
+      description:
+          typeof row.description === "string"
+              ? row.description
+              : typeof row.flavor_description === "string"
+                  ? row.flavor_description
+                  : null,
+      created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
+      modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? ""),
+      created_datetime_utc: String(
+          row.created_datetime_utc ?? row.created_at ?? new Date().toISOString(),
+      ),
+      modified_datetime_utc: String(
+          row.modified_datetime_utc ??
+          row.modified_at ??
+          row.created_datetime_utc ??
+          row.created_at ??
+          new Date().toISOString(),
+      ),
+    };
+  }
 
   const hasImageInput = Boolean(selectedFile || imageUrl.trim());
   const canGenerate = Boolean(selectedFlavorId) && hasImageInput && !isGenerating;
@@ -286,6 +335,7 @@ export default function Page() {
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !profile || !newFlavorName.trim()) return;
+    setCreateFlavorNotice("");
 
     setCreateFlavorNotice("");
 
@@ -295,6 +345,16 @@ export default function Page() {
       created_by_user_id: profile.id,
       modified_by_user_id: profile.id,
     });
+
+    if (error?.message.includes("name")) {
+      const fallback = await supabase.from("humor_flavors").insert({
+        flavor_name: newFlavorName.trim(),
+        flavor_description: newFlavorDescription.trim() || null,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      });
+      error = fallback.error;
+    }
 
     if (error) {
       setStatus(error.message);
@@ -936,4 +996,4 @@ export default function Page() {
       )}
     </main>
   );
-}
+} //
