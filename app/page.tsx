@@ -445,9 +445,13 @@ export default function Page() {
             {user ? `Logged in: ${user.email ?? user.id}` : "Not logged in"}
           </strong>
           {!user ? (
-              <button onClick={loginWithGoogle}>Login with Google</button>
+              <button type="button" onClick={loginWithGoogle}>
+                Login with Google
+              </button>
           ) : (
-              <button onClick={logout}>Log out</button>
+              <button type="button" onClick={logout}>
+                Log out
+              </button>
           )}
         </div>
 
@@ -476,18 +480,21 @@ export default function Page() {
                       <h2>🎨 Theme</h2>
                       <div className="row">
                         <button
+                            type="button"
                             onClick={() => setThemeMode("light")}
                             disabled={theme === "light"}
                         >
                           Light
                         </button>
                         <button
+                            type="button"
                             onClick={() => setThemeMode("dark")}
                             disabled={theme === "dark"}
                         >
                           Dark
                         </button>
                         <button
+                            type="button"
                             onClick={() => setThemeMode("system")}
                             disabled={theme === "system"}
                         >
@@ -535,6 +542,7 @@ export default function Page() {
                             <div key={flavor.id} className="card">
                               <div className="row">
                                 <button
+                                    type="button"
                                     onClick={async () => {
                                       setSelectedFlavorId(flavor.id);
                                       await loadSteps(flavor.id);
@@ -549,13 +557,20 @@ export default function Page() {
                               </div>
                               <p>{flavor.description}</p>
                               <div className="row">
-                                <button onClick={() => updateFlavor(flavor)}>
+                                <button
+                                    type="button"
+                                    onClick={() => updateFlavor(flavor)}
+                                >
                                   Rename
                                 </button>
-                                <button onClick={() => deleteFlavor(flavor)}>
+                                <button
+                                    type="button"
+                                    onClick={() => deleteFlavor(flavor)}
+                                >
                                   Delete
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={async () => {
                                       setSelectedFlavorId(flavor.id);
                                       await loadSteps(flavor.id);
@@ -604,16 +619,28 @@ export default function Page() {
                                     </div>
                                     <p>{step.instruction}</p>
                                     <div className="row">
-                                      <button onClick={() => moveStep(step, -1)}>
+                                      <button
+                                          type="button"
+                                          onClick={() => moveStep(step, -1)}
+                                      >
                                         Move up
                                       </button>
-                                      <button onClick={() => moveStep(step, 1)}>
+                                      <button
+                                          type="button"
+                                          onClick={() => moveStep(step, 1)}
+                                      >
                                         Move down
                                       </button>
-                                      <button onClick={() => updateStep(step)}>
+                                      <button
+                                          type="button"
+                                          onClick={() => updateStep(step)}
+                                      >
                                         Edit
                                       </button>
-                                      <button onClick={() => deleteStep(step)}>
+                                      <button
+                                          type="button"
+                                          onClick={() => deleteStep(step)}
+                                      >
                                         Delete
                                       </button>
                                     </div>
@@ -707,36 +734,42 @@ export default function Page() {
                 <h3>📂 Sections</h3>
                 <div className="tabs-list">
                   <button
+                      type="button"
                       onClick={() => setActivePanel("theme")}
                       title="Theme settings"
                   >
                     🎨 Theme
                   </button>
                   <button
+                      type="button"
                       onClick={() => setActivePanel("create-flavor")}
                       title="Create humor flavor"
                   >
                     ✨ Create
                   </button>
                   <button
+                      type="button"
                       onClick={() => setActivePanel("flavors")}
                       title="View/update/delete flavors"
                   >
                     🧠 Flavors
                   </button>
                   <button
+                      type="button"
                       onClick={() => setActivePanel("steps")}
                       title="Manage flavor steps"
                   >
                     🪜 Steps
                   </button>
                   <button
+                      type="button"
                       onClick={() => setActivePanel("test")}
                       title="Generate captions"
                   >
                     🧪 Test
                   </button>
                   <button
+                      type="button"
                       onClick={() => setActivePanel("runs")}
                       title="Generated caption history"
                   >
