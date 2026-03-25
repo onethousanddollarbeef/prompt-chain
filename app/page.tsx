@@ -144,7 +144,7 @@ export default function Page() {
     if (!supabase) return;
 
     const { data, error } = await supabase
-        .from("humor_flavors")
+        .from("humor_flavor_flavors")
         .select("*")
         .order("created_datetime_utc", { ascending: false });
 

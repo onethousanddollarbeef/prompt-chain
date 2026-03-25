@@ -20,14 +20,14 @@ type ApiErrorPayload = {
 };
 
 async function postToApi(
-  apiUrl: string,
-  apiPath: string,
-  apiKey: string | undefined,
-  body: {
-    flavor: IncomingFlavor;
-    steps: IncomingStep[];
-    imageUrl: string;
-  }
+    apiUrl: string,
+    apiPath: string,
+    apiKey: string | undefined,
+    body: {
+      flavor: IncomingFlavor;
+      steps: IncomingStep[];
+      imageUrl: string;
+    }
 ) {
   const orderedSteps = [...(body.steps ?? [])].sort((a, b) => a.position - b.position);
   const promptChain = orderedSteps.map((step) => ({
@@ -78,8 +78,8 @@ export async function POST(req: NextRequest) {
     const configuredPath = process.env.ALMOSTCRACKD_API_PATH;
 
     const pathsToTry = configuredPath
-      ? [configuredPath]
-      : ['/pipeline/generate_captions', '/captions/generate'];
+        ? [configuredPath]
+        : ['/pipeline/generate_captions', '/captions/generate'];
 
     let lastStatus = 500;
     let lastErrorPayload: ApiErrorPayload = { error: 'API request failed' };
@@ -105,10 +105,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(lastErrorPayload, { status: lastStatus });
   } catch (error) {
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Unexpected error'
-      },
-      { status: 500 }
+        {
+          error: error instanceof Error ? error.message : 'Unexpected error'
+        },
+        { status: 500 }
     );
   }
 }
