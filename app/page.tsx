@@ -46,6 +46,7 @@ export default function Page() {
   const [newFlavorName, setNewFlavorName] = useState("");
   const [newFlavorDescription, setNewFlavorDescription] = useState("");
   const [confirmCreateFlavor, setConfirmCreateFlavor] = useState(false);
+  const [createFlavorNotice, setCreateFlavorNotice] = useState("");
 
   const [stepTitle, setStepTitle] = useState("");
   const [stepInstruction, setStepInstruction] = useState("");
@@ -252,6 +253,7 @@ export default function Page() {
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !profile || !newFlavorName.trim()) return;
+    setCreateFlavorNotice("");
 
     const { error } = await supabase.from("humor_flavors").insert({
       name: newFlavorName.trim(),
@@ -262,14 +264,17 @@ export default function Page() {
 
     if (error) {
       setStatus(error.message);
+      setCreateFlavorNotice(`❌ Create failed: ${error.message}`);
       return;
     }
 
+    const createdFlavorName = newFlavorName.trim();
     setNewFlavorName("");
     setNewFlavorDescription("");
     setConfirmCreateFlavor(false);
     await loadFlavors();
-    setStatus("Flavor created.");
+    setStatus(`Flavor "${createdFlavorName}" created.`);
+    setCreateFlavorNotice(`✅ Flavor "${createdFlavorName}" created successfully.`);
   }
 
   async function updateFlavor(flavor: HumorFlavor) {
@@ -510,24 +515,42 @@ export default function Page() {
       const registerPayload = (await registerResponse.json()) as { imageId: string };
       resolvedImageId = registerPayload.imageId;
 
-      const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({
-          imageId: resolvedImageId,
-          humorFlavorId: selectedFlavor.id,
-        }),
-      });
+      const generateBodies = [
+        { imageId: resolvedImageId, humorFlavorId: selectedFlavor.id },
+        { imageId: resolvedImageId, humor_flavor_id: selectedFlavor.id },
+        { imageId: resolvedImageId },
+      ];
 
-      if (!captionsResponse.ok) {
-        const body = await parseApiBody(captionsResponse);
-        setStatus(
-          `Step 4 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+      let payload: unknown = null;
+      let generationSucceeded = false;
+      let lastGenerateError = "";
+
+      for (const requestBody of generateBodies) {
+        const captionsResponse = await fetch(
+          `${API_BASE_URL}/pipeline/generate-captions`,
+          {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify(requestBody),
+          },
         );
+
+        if (captionsResponse.ok) {
+          payload = (await captionsResponse.json()) as unknown;
+          generationSucceeded = true;
+          break;
+        }
+
+        const body = await parseApiBody(captionsResponse);
+        lastGenerateError =
+          typeof body === "string" ? body : JSON.stringify(body);
+      }
+
+      if (!generationSucceeded) {
+        setStatus(`Step 4 failed: ${lastGenerateError}`);
         return;
       }
 
-      const payload = (await captionsResponse.json()) as unknown;
       setApiResult(JSON.stringify(payload, null, 2));
 
       if (runsTableAvailable) {
@@ -706,6 +729,7 @@ export default function Page() {
                     ✅ Confirm create flavor
                   </button>
                 </form>
+                {createFlavorNotice && <p className="small">{createFlavorNotice}</p>}
               </section>
             )}
 
@@ -840,6 +864,9 @@ export default function Page() {
                 <p className="small">
                   Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image{" "}
                   {hasImageInput ? "✅" : "❌"} (steps are optional here)
+                </p>
+                <p className="small">
+                  Status: {status || "Idle"}
                 </p>
                 <form className="grid" onSubmit={testFlavor}>
                   <label className="row">
