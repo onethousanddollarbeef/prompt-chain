@@ -53,9 +53,9 @@ export default function AuthCallbackPage() {
   }, [supabase]);
 
   return (
-    <main className="container">
-      <h1>Auth callback</h1>
-      <p>{message}</p>
-    </main>
+      <main className="container">
+        <h1>Auth callback</h1>
+        <p>{message}</p>
+      </main>
   );
 }
