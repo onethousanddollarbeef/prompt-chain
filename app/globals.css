@@ -130,6 +130,12 @@ button {
   text-align: left;
 }
 
+.top-theme-toggle {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 30;
+}
+
 @media (max-width: 980px) {
   .admin-layout {
     grid-template-columns: 1fr;

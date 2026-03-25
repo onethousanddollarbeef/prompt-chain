@@ -11,7 +11,7 @@ export default function AuthCallbackPage() {
     async function completeAuth() {
       if (!supabase) {
         setMessage(
-            'Missing env vars: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.'
+          'Missing env vars: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.'
         );
         return;
       }
@@ -21,6 +21,7 @@ export default function AuthCallbackPage() {
       const code = url.searchParams.get('code');
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
+      const nextPath = url.searchParams.get('next') || '/';
 
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
@@ -31,7 +32,7 @@ export default function AuthCallbackPage() {
       } else if (accessToken && refreshToken) {
         const { error } = await supabase.auth.setSession({
           access_token: accessToken,
-          refresh_token: refreshToken
+          refresh_token: refreshToken,
         });
         if (error) {
           setMessage(`Login failed: ${error.message}`);
@@ -39,7 +40,7 @@ export default function AuthCallbackPage() {
         }
       } else {
         const {
-          data: { session }
+          data: { session },
         } = await supabase.auth.getSession();
         if (!session) {
           setMessage('Login failed: missing authorization parameters.');
@@ -48,16 +49,16 @@ export default function AuthCallbackPage() {
       }
 
       setMessage('Login successful. Redirecting…');
-      window.location.replace('/');
+      window.location.replace(nextPath.startsWith('/') ? nextPath : '/');
     }
 
     void completeAuth();
   }, [supabase]);
 
   return (
-      <main className="container">
-        <h1>Auth callback</h1>
-        <p>{message}</p>
-      </main>
-  ); //
+    <main className="container">
+      <h1>Auth callback</h1>
+      <p>{message}</p>
+    </main>
+  );
 }
