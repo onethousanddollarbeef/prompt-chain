@@ -7,12 +7,14 @@ import { getSupabaseBrowserClient } from '@/lib/supabase';
 import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
 
 type ThemeMode = 'light' | 'dark' | 'system';
+type AdminPanel = 'theme' | 'create-flavor' | 'flavors' | 'steps' | 'test' | 'runs';
 
 export default function Page() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<ThemeMode>('system');
+  const [activePanel, setActivePanel] = useState<AdminPanel>('create-flavor');
 
   const [flavors, setFlavors] = useState<HumorFlavor[]>([]);
   const [selectedFlavorId, setSelectedFlavorId] = useState<string>('');
@@ -438,28 +440,8 @@ export default function Page() {
       {isAdmin() && (
         <div className="admin-layout">
           <div>
-            <nav className="card emoji-nav" aria-label="Quick actions">
-            <a href="#theme" title="Change theme (light, dark, system)" aria-label="Change theme">
-              🎨
-            </a>
-            <a href="#create-flavor" title="Create a humor flavor" aria-label="Create flavor">
-              ✨
-            </a>
-            <a href="#flavors" title="Update or delete a humor flavor" aria-label="Manage flavors">
-              🧠
-            </a>
-            <a href="#steps" title="Create, edit, delete, or reorder humor flavor steps" aria-label="Manage steps">
-              🪜
-            </a>
-            <a href="#test" title="Generate captions for an image using this flavor" aria-label="Test flavor">
-              🧪
-            </a>
-            <a href="#runs" title="Read generated caption history" aria-label="View generated captions">
-              📜
-            </a>
-            </nav>
-
-            <section className="card" id="theme">
+            {activePanel === 'theme' && (
+              <section className="card" id="theme">
               <h2>🎨 Theme</h2>
               <div className="row">
                 <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
@@ -473,8 +455,10 @@ export default function Page() {
                 </button>
               </div>
             </section>
+            )}
 
-          <section className="card" id="create-flavor">
+          {activePanel === 'create-flavor' && (
+            <section className="card" id="create-flavor">
             <h2>✨ Create humor flavor</h2>
             <form className="grid" onSubmit={createFlavor}>
               <input
@@ -501,8 +485,10 @@ export default function Page() {
               </button>
             </form>
           </section>
+          )}
 
-          <section className="card" id="flavors">
+          {activePanel === 'flavors' && (
+            <section className="card" id="flavors">
             <h2>🧠 Humor flavors</h2>
             <div className="grid">
               {flavors.map((flavor) => (
@@ -528,7 +514,7 @@ export default function Page() {
                         setSelectedFlavorId(flavor.id);
                         await loadSteps(flavor.id);
                         await loadRuns(flavor.id);
-                        document.getElementById('test')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        setActivePanel('test');
                       }}
                     >
                       🧪 Make captions
@@ -538,8 +524,10 @@ export default function Page() {
               ))}
             </div>
           </section>
+          )}
 
-          <section className="card" id="steps">
+          {activePanel === 'steps' && (
+            <section className="card" id="steps">
             <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ''}</h2>
             {selectedFlavor ? (
               <>
@@ -581,8 +569,10 @@ export default function Page() {
               <p>Select a flavor first.</p>
             )}
           </section>
+          )}
 
-          <section className="card" id="test">
+          {activePanel === 'test' && (
+            <section className="card" id="test">
             <h2>🧪 Test flavor via API</h2>
             <p className="small">
               This is where you make captions for the currently selected flavor. Use “🧪 Make captions” from a flavor
@@ -616,8 +606,10 @@ export default function Page() {
             </form>
             {apiResult && <pre>{apiResult}</pre>}
           </section>
+          )}
 
-          <section className="card" id="runs">
+          {activePanel === 'runs' && (
+            <section className="card" id="runs">
             <h2>📜 Recent generated captions</h2>
             <div className="grid">
               {runs.map((run) => (
@@ -631,9 +623,31 @@ export default function Page() {
               ))}
             </div>
           </section>
+          )}
           </div>
 
           <aside className="card steps-key">
+            <h3>📂 Sections</h3>
+            <div className="tabs-list">
+              <button onClick={() => setActivePanel('theme')} title="Theme settings">
+                🎨 Theme
+              </button>
+              <button onClick={() => setActivePanel('create-flavor')} title="Create humor flavor">
+                ✨ Create
+              </button>
+              <button onClick={() => setActivePanel('flavors')} title="View/update/delete flavors">
+                🧠 Flavors
+              </button>
+              <button onClick={() => setActivePanel('steps')} title="Manage flavor steps">
+                🪜 Steps
+              </button>
+              <button onClick={() => setActivePanel('test')} title="Generate captions">
+                🧪 Test
+              </button>
+              <button onClick={() => setActivePanel('runs')} title="Generated caption history">
+                📜 Runs
+              </button>
+            </div>
             <h3>🗺️ Steps key</h3>
             <ol>
               <li>Take in an image and output a description in text.</li>

@@ -119,6 +119,17 @@ button {
   top: 6rem;
 }
 
+.tabs-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tabs-list button {
+  width: 100%;
+  text-align: left;
+}
+
 @media (max-width: 980px) {
   .admin-layout {
     grid-template-columns: 1fr;
