@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
@@ -20,11 +21,13 @@ export default function Page() {
 
   const [newFlavorName, setNewFlavorName] = useState('');
   const [newFlavorDescription, setNewFlavorDescription] = useState('');
+  const [confirmCreateFlavor, setConfirmCreateFlavor] = useState(false);
 
   const [stepTitle, setStepTitle] = useState('');
   const [stepInstruction, setStepInstruction] = useState('');
 
   const [imageUrl, setImageUrl] = useState('');
+  const [imageUploadName, setImageUploadName] = useState('');
   const [apiResult, setApiResult] = useState<string>('');
   const [status, setStatus] = useState<string>('');
 
@@ -61,7 +64,7 @@ export default function Page() {
         .from('humor_flavor_runs')
         .select('*')
         .eq('flavor_id', flavorId)
-        .order('created_at', { ascending: false })
+        .order('created_datetime_utc', { ascending: false })
         .limit(10);
       if (error) {
         setStatus(error.message);
@@ -78,7 +81,7 @@ export default function Page() {
     const { data, error } = await supabase
       .from('humor_flavors')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_datetime_utc', { ascending: false });
     if (error) {
       setStatus(error.message);
       return;
@@ -185,7 +188,7 @@ export default function Page() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: `${window.location.origin}/auth/callback`
       }
     });
     if (error) {
@@ -212,7 +215,8 @@ export default function Page() {
     const { error } = await supabase.from('humor_flavors').insert({
       name: newFlavorName.trim(),
       description: newFlavorDescription.trim() || null,
-      created_by: profile.id
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id
     });
 
     if (error) {
@@ -222,19 +226,23 @@ export default function Page() {
 
     setNewFlavorName('');
     setNewFlavorDescription('');
+    setConfirmCreateFlavor(false);
     await loadFlavors();
     setStatus('Flavor created.');
   }
 
   async function updateFlavor(flavor: HumorFlavor) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
     const newName = prompt('New flavor name', flavor.name);
     if (!newName) return;
 
     const { error } = await supabase
       .from('humor_flavors')
-      .update({ name: newName })
+      .update({
+        name: newName,
+        modified_by_user_id: profile.id
+      })
       .eq('id', flavor.id);
 
     if (error) {
@@ -261,14 +269,16 @@ export default function Page() {
 
   async function createStep(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
+    if (!supabase || !profile || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
 
     const nextPos = steps.length ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
     const { error } = await supabase.from('humor_flavor_steps').insert({
       flavor_id: selectedFlavorId,
       position: nextPos,
       title: stepTitle.trim(),
-      instruction: stepInstruction.trim()
+      instruction: stepInstruction.trim(),
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id
     });
     if (error) {
       setStatus(error.message);
@@ -281,7 +291,7 @@ export default function Page() {
   }
 
   async function updateStep(step: HumorFlavorStep) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
     const title = prompt('Step title', step.title);
     if (!title) return;
@@ -290,7 +300,7 @@ export default function Page() {
 
     const { error } = await supabase
       .from('humor_flavor_steps')
-      .update({ title, instruction })
+      .update({ title, instruction, modified_by_user_id: profile.id })
       .eq('id', step.id);
 
     if (error) {
@@ -314,7 +324,7 @@ export default function Page() {
   }
 
   async function moveStep(step: HumorFlavorStep, direction: -1 | 1) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
     const currentIndex = steps.findIndex((s) => s.id === step.id);
     const targetIndex = currentIndex + direction;
@@ -329,7 +339,7 @@ export default function Page() {
     for (const update of updates) {
       const { error } = await supabase
         .from('humor_flavor_steps')
-        .update({ position: update.position })
+        .update({ position: update.position, modified_by_user_id: profile.id })
         .eq('id', update.id);
       if (error) {
         setStatus(error.message);
@@ -342,7 +352,7 @@ export default function Page() {
 
   async function testFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavor || !imageUrl.trim()) return;
+    if (!supabase || !profile || !selectedFlavor || !imageUrl.trim()) return;
 
     const res = await fetch('/api/generate-captions', {
       method: 'POST',
@@ -365,10 +375,23 @@ export default function Page() {
     await supabase.from('humor_flavor_runs').insert({
       flavor_id: selectedFlavor.id,
       image_url: imageUrl.trim(),
-      response_json: payload.data
+      response_json: payload.data,
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id
     });
     await loadRuns(selectedFlavor.id);
     setStatus('Captions generated and saved.');
+  }
+
+  function handleImageUpload(file: File | null) {
+    if (!file) return;
+    setImageUploadName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setImageUrl(result);
+    };
+    reader.readAsDataURL(file);
   }
 
   if (loading) {
@@ -387,7 +410,6 @@ export default function Page() {
   return (
     <main className="container">
       <h1>Humor Flavor Prompt Chain</h1>
-      <p><strong>THIS IS THE NEW DEPLOYMENT (PR6)</strong></p>
       <p className="small">{status}</p>
       <div className="row card">
         <strong>{user ? `Logged in: ${user.email ?? user.id}` : 'Not logged in'}</strong>
@@ -414,24 +436,46 @@ export default function Page() {
       )}
 
       {isAdmin() && (
-        <>
-          <section className="card">
-            <h2>Theme</h2>
-            <div className="row">
-              <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
-                Light
-              </button>
-              <button onClick={() => setThemeMode('dark')} disabled={theme === 'dark'}>
-                Dark
-              </button>
-              <button onClick={() => setThemeMode('system')} disabled={theme === 'system'}>
-                System
-              </button>
-            </div>
-          </section>
+        <div className="admin-layout">
+          <div>
+            <nav className="card emoji-nav" aria-label="Quick actions">
+            <a href="#theme" title="Change theme (light, dark, system)" aria-label="Change theme">
+              🎨
+            </a>
+            <a href="#create-flavor" title="Create a humor flavor" aria-label="Create flavor">
+              ✨
+            </a>
+            <a href="#flavors" title="Update or delete a humor flavor" aria-label="Manage flavors">
+              🧠
+            </a>
+            <a href="#steps" title="Create, edit, delete, or reorder humor flavor steps" aria-label="Manage steps">
+              🪜
+            </a>
+            <a href="#test" title="Generate captions for an image using this flavor" aria-label="Test flavor">
+              🧪
+            </a>
+            <a href="#runs" title="Read generated caption history" aria-label="View generated captions">
+              📜
+            </a>
+            </nav>
 
-          <section className="card">
-            <h2>Create humor flavor</h2>
+            <section className="card" id="theme">
+              <h2>🎨 Theme</h2>
+              <div className="row">
+                <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
+                  Light
+                </button>
+                <button onClick={() => setThemeMode('dark')} disabled={theme === 'dark'}>
+                  Dark
+                </button>
+                <button onClick={() => setThemeMode('system')} disabled={theme === 'system'}>
+                  System
+                </button>
+              </div>
+            </section>
+
+          <section className="card" id="create-flavor">
+            <h2>✨ Create humor flavor</h2>
             <form className="grid" onSubmit={createFlavor}>
               <input
                 value={newFlavorName}
@@ -444,12 +488,22 @@ export default function Page() {
                 onChange={(e) => setNewFlavorDescription(e.target.value)}
                 placeholder="Description"
               />
-              <button type="submit">Create flavor</button>
+              <label className="row">
+                <input
+                  type="checkbox"
+                  checked={confirmCreateFlavor}
+                  onChange={(e) => setConfirmCreateFlavor(e.target.checked)}
+                />
+                <span>Confirm I want to create this flavor</span>
+              </label>
+              <button type="submit" disabled={!confirmCreateFlavor}>
+                ✅ Confirm create flavor
+              </button>
             </form>
           </section>
 
-          <section className="card">
-            <h2>Humor flavors</h2>
+          <section className="card" id="flavors">
+            <h2>🧠 Humor flavors</h2>
             <div className="grid">
               {flavors.map((flavor) => (
                 <div key={flavor.id} className="card">
@@ -469,14 +523,24 @@ export default function Page() {
                   <div className="row">
                     <button onClick={() => updateFlavor(flavor)}>Rename</button>
                     <button onClick={() => deleteFlavor(flavor)}>Delete</button>
+                    <button
+                      onClick={async () => {
+                        setSelectedFlavorId(flavor.id);
+                        await loadSteps(flavor.id);
+                        await loadRuns(flavor.id);
+                        document.getElementById('test')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                    >
+                      🧪 Make captions
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="card">
-            <h2>Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ''}</h2>
+          <section className="card" id="steps">
+            <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ''}</h2>
             {selectedFlavor ? (
               <>
                 <form className="grid" onSubmit={createStep}>
@@ -518,15 +582,34 @@ export default function Page() {
             )}
           </section>
 
-          <section className="card">
-            <h2>Test flavor via API</h2>
+          <section className="card" id="test">
+            <h2>🧪 Test flavor via API</h2>
+            <p className="small">
+              This is where you make captions for the currently selected flavor. Use “🧪 Make captions” from a flavor
+              card to jump here fast.
+            </p>
             <form className="grid" onSubmit={testFlavor}>
+              <label className="row">
+                <span>Upload image:</span>
+                <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e.target.files?.[0] ?? null)} />
+              </label>
+              {imageUploadName && <p className="small">Using uploaded image: {imageUploadName}</p>}
               <input
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="Image URL from your test set"
+                placeholder="Image URL from your test set (or upload a file above)"
                 required
               />
+              {imageUrl && (
+                <Image
+                  src={imageUrl}
+                  alt="Test input preview"
+                  width={280}
+                  height={180}
+                  unoptimized
+                  style={{ borderRadius: 8, objectFit: 'cover', width: '280px', height: '180px' }}
+                />
+              )}
               <button type="submit" disabled={!selectedFlavorId || steps.length === 0}>
                 Generate captions
               </button>
@@ -534,12 +617,12 @@ export default function Page() {
             {apiResult && <pre>{apiResult}</pre>}
           </section>
 
-          <section className="card">
-            <h2>Recent generated captions</h2>
+          <section className="card" id="runs">
+            <h2>📜 Recent generated captions</h2>
             <div className="grid">
               {runs.map((run) => (
                 <div key={run.id} className="card">
-                  <p className="small">{new Date(run.created_at).toLocaleString()}</p>
+                  <p className="small">{new Date(run.created_datetime_utc).toLocaleString()}</p>
                   <p>
                     <strong>Image:</strong> {run.image_url}
                   </p>
@@ -548,7 +631,18 @@ export default function Page() {
               ))}
             </div>
           </section>
-        </>
+          </div>
+
+          <aside className="card steps-key">
+            <h3>🗺️ Steps key</h3>
+            <ol>
+              <li>Take in an image and output a description in text.</li>
+              <li>Take output from step 1 and output something funny about it.</li>
+              <li>Take output from step 2 and output five short, funny captions.</li>
+            </ol>
+            <p className="small">Tip: Create flavor → add steps → click 🧪 Make captions.</p>
+          </aside>
+        </div>
       )}
     </main>
   );
