@@ -55,44 +55,30 @@ export default function Page() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
   const selectedFlavor = useMemo(
-    () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
-    [flavors, selectedFlavorId],
+      () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
+      [flavors, selectedFlavorId],
   );
+
   const hasImageInput = Boolean(selectedFile || imageUrl.trim());
-  const canGenerate =
-      Boolean(selectedFlavorId) &&
-      hasImageInput &&
-      !isGenerating;
-  const parsedCaptions = useMemo(() => {
-    if (!apiResult) return [];
-    try {
-      const payload = JSON.parse(apiResult) as unknown;
-      if (Array.isArray(payload)) {
-        return payload
-            .map((item) => {
-              if (!item || typeof item !== "object") return "";
-              const obj = item as Record<string, unknown>;
-              const value = obj.content ?? obj.caption ?? obj.text;
-              return typeof value === "string" ? value : "";
-            })
-            .filter((text) => text.trim().length > 0);
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  }, [apiResult]);
+  const canGenerate = Boolean(selectedFlavorId) && hasImageInput && !isGenerating;
+
+  function extractCaptions(payload: unknown): string[] {
+    if (!Array.isArray(payload)) return [];
+    return payload
+        .map((item) => {
+          if (!item || typeof item !== "object") return "";
+          const obj = item as Record<string, unknown>;
+          const value = obj.content ?? obj.caption ?? obj.text;
+          return typeof value === "string" ? value : "";
+        })
+        .filter((text) => text.trim().length > 0);
+  }
 
   function normalizeFlavorRow(row: Record<string, unknown>): HumorFlavor {
     return {
       id: String(row.id ?? ""),
-      name: String(row.name ?? row.flavor_name ?? row.title ?? "(unnamed flavor)"),
-      description:
-          typeof row.description === "string"
-              ? row.description
-              : typeof row.flavor_description === "string"
-                  ? row.flavor_description
-                  : null,
+      name: String(row.name ?? row.title ?? "(unnamed flavor)"),
+      description: typeof row.description === "string" ? row.description : null,
       created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
       modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? ""),
       created_datetime_utc: String(
@@ -108,94 +94,59 @@ export default function Page() {
     };
   }
 
-  const hasImageInput = Boolean(selectedFile || imageUrl.trim());
-  const canGenerate = Boolean(selectedFlavorId) && hasImageInput && !isGenerating;
-
-  function extractCaptions(payload: unknown): string[] {
-    if (!Array.isArray(payload)) return [];
-    return payload
-      .map((item) => {
-        if (!item || typeof item !== "object") return "";
-        const obj = item as Record<string, unknown>;
-        const value = obj.content ?? obj.caption ?? obj.text;
-        return typeof value === "string" ? value : "";
-      })
-      .filter((text) => text.trim().length > 0);
-  }
-
-  function normalizeFlavorRow(row: Record<string, unknown>): HumorFlavor {
-    return {
-      id: String(row.id ?? ""),
-      name: String(row.name ?? row.title ?? "(unnamed flavor)"),
-      description: typeof row.description === "string" ? row.description : null,
-      created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
-      modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? ""),
-      created_datetime_utc: String(
-        row.created_datetime_utc ?? row.created_at ?? new Date().toISOString(),
-      ),
-      modified_datetime_utc: String(
-        row.modified_datetime_utc ??
-          row.modified_at ??
-          row.created_datetime_utc ??
-          row.created_at ??
-          new Date().toISOString(),
-      ),
-    };
-  }
-
   const loadSteps = useCallback(
-    async (flavorId: string) => {
-      if (!supabase) return;
+      async (flavorId: string) => {
+        if (!supabase) return;
 
-      const { data, error } = await supabase
-        .from("humor_flavor_steps")
-        .select("*")
-        .eq("flavor_id", flavorId)
-        .order("position", { ascending: true });
+        const { data, error } = await supabase
+            .from("humor_flavor_steps")
+            .select("*")
+            .eq("flavor_id", flavorId)
+            .order("position", { ascending: true });
 
-      if (error) {
-        setStatus(error.message);
-        return;
-      }
+        if (error) {
+          setStatus(error.message);
+          return;
+        }
 
-      setSteps(data ?? []);
-    },
-    [supabase],
+        setSteps(data ?? []);
+      },
+      [supabase],
   );
 
   const loadRuns = useCallback(
-    async (flavorId: string) => {
-      if (!supabase || !runsTableAvailable) return;
+      async (flavorId: string) => {
+        if (!supabase || !runsTableAvailable) return;
 
-      const { data, error } = await supabase
-        .from("humor_flavor_runs")
-        .select("*")
-        .eq("flavor_id", flavorId)
-        .order("created_datetime_utc", { ascending: false })
-        .limit(10);
+        const { data, error } = await supabase
+            .from("humor_flavor_runs")
+            .select("*")
+            .eq("flavor_id", flavorId)
+            .order("created_datetime_utc", { ascending: false })
+            .limit(10);
 
-      if (error) {
-        if (error.message.includes("humor_flavor_runs")) {
-          setRunsTableAvailable(false);
-          setRuns([]);
+        if (error) {
+          if (error.message.includes("humor_flavor_runs")) {
+            setRunsTableAvailable(false);
+            setRuns([]);
+            return;
+          }
+          setStatus(error.message);
           return;
         }
-        setStatus(error.message);
-        return;
-      }
 
-      setRuns(data ?? []);
-    },
-    [supabase, runsTableAvailable],
+        setRuns(data ?? []);
+      },
+      [supabase, runsTableAvailable],
   );
 
   const loadFlavors = useCallback(async () => {
     if (!supabase) return;
 
     const { data, error } = await supabase
-      .from("humor_flavors")
-      .select("*")
-      .order("created_datetime_utc", { ascending: false });
+        .from("humor_flavors")
+        .select("*")
+        .order("created_datetime_utc", { ascending: false });
 
     if (error) {
       setStatus(error.message);
@@ -203,7 +154,7 @@ export default function Page() {
     }
 
     const normalized = (data ?? []).map((row) =>
-      normalizeFlavorRow(row as Record<string, unknown>),
+        normalizeFlavorRow(row as Record<string, unknown>),
     );
 
     setFlavors(normalized);
@@ -216,38 +167,38 @@ export default function Page() {
   }, [supabase, selectedFlavorId, loadSteps, loadRuns]);
 
   const loadProfile = useCallback(
-    async (currentUser: User | null) => {
-      if (!supabase || !currentUser) {
-        setProfile(null);
-        setFlavors([]);
-        setSteps([]);
-        setRuns([]);
-        setSelectedFlavorId("");
-        return;
-      }
+      async (currentUser: User | null) => {
+        if (!supabase || !currentUser) {
+          setProfile(null);
+          setFlavors([]);
+          setSteps([]);
+          setRuns([]);
+          setSelectedFlavorId("");
+          return;
+        }
 
-      const { data: profileData, error } = await supabase
-        .from("profiles")
-        .select("id, is_superadmin, is_matrix_admin")
-        .eq("id", currentUser.id)
-        .single();
+        const { data: profileData, error } = await supabase
+            .from("profiles")
+            .select("id, is_superadmin, is_matrix_admin")
+            .eq("id", currentUser.id)
+            .single();
 
-      if (error) {
-        setProfile(null);
-        setStatus(`Profile lookup failed: ${error.message}`);
-        return;
-      }
+        if (error) {
+          setProfile(null);
+          setStatus(`Profile lookup failed: ${error.message}`);
+          return;
+        }
 
-      setProfile(profileData);
+        setProfile(profileData);
 
-      if (profileData.is_superadmin || profileData.is_matrix_admin) {
-        setStatus("Authenticated as admin.");
-        await loadFlavors();
-      } else {
-        setStatus("Logged in, but account is not admin in profiles table.");
-      }
-    },
-    [supabase, loadFlavors],
+        if (profileData.is_superadmin || profileData.is_matrix_admin) {
+          setStatus("Authenticated as admin.");
+          await loadFlavors();
+        } else {
+          setStatus("Logged in, but account is not admin in profiles table.");
+        }
+      },
+      [supabase, loadFlavors],
   );
 
   const init = useCallback(async () => {
@@ -335,7 +286,6 @@ export default function Page() {
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !profile || !newFlavorName.trim()) return;
-    setCreateFlavorNotice("");
 
     setCreateFlavorNotice("");
 
@@ -345,16 +295,6 @@ export default function Page() {
       created_by_user_id: profile.id,
       modified_by_user_id: profile.id,
     });
-
-    if (error?.message.includes("name")) {
-      const fallback = await supabase.from("humor_flavors").insert({
-        flavor_name: newFlavorName.trim(),
-        flavor_description: newFlavorDescription.trim() || null,
-        created_by_user_id: profile.id,
-        modified_by_user_id: profile.id,
-      });
-      error = fallback.error;
-    }
 
     if (error) {
       setStatus(error.message);
@@ -378,12 +318,12 @@ export default function Page() {
     if (!newName) return;
 
     const { error } = await supabase
-      .from("humor_flavors")
-      .update({
-        name: newName,
-        modified_by_user_id: profile.id,
-      })
-      .eq("id", flavor.id);
+        .from("humor_flavors")
+        .update({
+          name: newName,
+          modified_by_user_id: profile.id,
+        })
+        .eq("id", flavor.id);
 
     if (error) {
       setStatus(error.message);
@@ -398,9 +338,9 @@ export default function Page() {
     if (!confirm(`Delete flavor "${flavor.name}"?`)) return;
 
     const { error } = await supabase
-      .from("humor_flavors")
-      .delete()
-      .eq("id", flavor.id);
+        .from("humor_flavors")
+        .delete()
+        .eq("id", flavor.id);
 
     if (error) {
       setStatus(error.message);
@@ -448,9 +388,9 @@ export default function Page() {
     if (!instruction) return;
 
     const { error } = await supabase
-      .from("humor_flavor_steps")
-      .update({ title, instruction, modified_by_user_id: profile.id })
-      .eq("id", step.id);
+        .from("humor_flavor_steps")
+        .update({ title, instruction, modified_by_user_id: profile.id })
+        .eq("id", step.id);
 
     if (error) {
       setStatus(error.message);
@@ -465,9 +405,9 @@ export default function Page() {
     if (!confirm(`Delete step "${step.title}"?`)) return;
 
     const { error } = await supabase
-      .from("humor_flavor_steps")
-      .delete()
-      .eq("id", step.id);
+        .from("humor_flavor_steps")
+        .delete()
+        .eq("id", step.id);
 
     if (error) {
       setStatus(error.message);
@@ -492,9 +432,9 @@ export default function Page() {
 
     for (const update of updates) {
       const { error } = await supabase
-        .from("humor_flavor_steps")
-        .update({ position: update.position, modified_by_user_id: profile.id })
-        .eq("id", update.id);
+          .from("humor_flavor_steps")
+          .update({ position: update.position, modified_by_user_id: profile.id })
+          .eq("id", update.id);
       if (error) {
         setStatus(error.message);
         return;
@@ -543,12 +483,12 @@ export default function Page() {
 
       if (selectedFile) {
         const presignedResponse = await fetch(
-          `${API_BASE_URL}/pipeline/generate-presigned-url`,
-          {
-            method: "POST",
-            headers: authHeaders,
-            body: JSON.stringify({ contentType: selectedFile.type }),
-          },
+            `${API_BASE_URL}/pipeline/generate-presigned-url`,
+            {
+              method: "POST",
+              headers: authHeaders,
+              body: JSON.stringify({ contentType: selectedFile.type }),
+            },
         );
 
         if (!presignedResponse.ok) {
@@ -683,7 +623,7 @@ export default function Page() {
 
     if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
       setStatus(
-        "Unsupported file type. Use image/jpeg, image/jpg, image/png, image/webp, image/gif, or image/heic.",
+          "Unsupported file type. Use image/jpeg, image/jpg, image/png, image/webp, image/gif, or image/heic.",
       );
       setSelectedFile(null);
       setImageUploadName("");
@@ -709,291 +649,291 @@ export default function Page() {
 
   if (!supabase) {
     return (
-      <main className="container">
-        <h1>Humor Flavor Prompt Chain</h1>
-        <p>Missing required environment variables.</p>
-        <ul>
-          <li>
-            <code>NEXT_PUBLIC_SUPABASE_URL</code>
-          </li>
-          <li>
-            <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
-          </li>
-        </ul>
-        <p className="small">
-          Add these in Vercel Project Settings → Environment Variables, then redeploy.
-        </p>
-      </main>
+        <main className="container">
+          <h1>Humor Flavor Prompt Chain</h1>
+          <p>Missing required environment variables.</p>
+          <ul>
+            <li>
+              <code>NEXT_PUBLIC_SUPABASE_URL</code>
+            </li>
+            <li>
+              <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
+            </li>
+          </ul>
+          <p className="small">
+            Add these in Vercel Project Settings → Environment Variables, then redeploy.
+          </p>
+        </main>
     );
   }
 
   return (
-    <main className="container">
-      <div className="row card top-theme-toggle">
-        <strong>Theme</strong>
-        <button type="button" onClick={() => updateTheme("light")} disabled={themeMode === "light"}>
-          Light
-        </button>
-        <button type="button" onClick={() => updateTheme("dark")} disabled={themeMode === "dark"}>
-          Dark
-        </button>
-        <button type="button" onClick={() => updateTheme("system")} disabled={themeMode === "system"}>
-          System
-        </button>
-      </div>
-
-      <h1>Humor Flavor Prompt Chain</h1>
-      <p className="small">{status}</p>
-
-      <div className="row card">
-        <strong>{user ? `Logged in: ${user.email ?? user.id}` : "Not logged in"}</strong>
-        {!user ? (
-          <button type="button" onClick={loginWithGoogle}>
-            Login with Google
+      <main className="container">
+        <div className="row card top-theme-toggle">
+          <strong>Theme</strong>
+          <button type="button" onClick={() => updateTheme("light")} disabled={themeMode === "light"}>
+            Light
           </button>
-        ) : (
-          <button type="button" onClick={logout}>
-            Log out
+          <button type="button" onClick={() => updateTheme("dark")} disabled={themeMode === "dark"}>
+            Dark
           </button>
-        )}
-      </div>
-
-      {user && profile && (
-        <p className="small">
-          Admin flags: superadmin={String(profile.is_superadmin)} matrix_admin=
-          {String(profile.is_matrix_admin)}
-        </p>
-      )}
-
-      {!user && <p>Please sign in with Google to continue.</p>}
-
-      {user && !isAdmin() && (
-        <p>
-          Logged in successfully, but this account is not admin in <code>profiles</code>. Ensure the
-          profile row for your auth user has <code>is_superadmin=true</code> or <code>is_matrix_admin=true</code>.
-        </p>
-      )}
-
-      {isAdmin() && (
-        <div className="admin-layout">
-          <div>
-            {activePanel === "create-flavor" && (
-              <section className="card" id="create-flavor">
-                <h2>✨ Create humor flavor</h2>
-                <form className="grid" onSubmit={createFlavor}>
-                  <input
-                    value={newFlavorName}
-                    onChange={(e) => setNewFlavorName(e.target.value)}
-                    placeholder="Flavor name"
-                    required
-                  />
-                  <textarea
-                    value={newFlavorDescription}
-                    onChange={(e) => setNewFlavorDescription(e.target.value)}
-                    placeholder="Description"
-                  />
-                  <label className="row">
-                    <input
-                      type="checkbox"
-                      checked={confirmCreateFlavor}
-                      onChange={(e) => setConfirmCreateFlavor(e.target.checked)}
-                    />
-                    <span>Confirm I want to create this flavor</span>
-                  </label>
-                  <button type="submit" disabled={!confirmCreateFlavor}>
-                    ✅ Confirm create flavor
-                  </button>
-                </form>
-                {createFlavorNotice && <p className="small">{createFlavorNotice}</p>}
-              </section>
-            )}
-
-            {activePanel === "flavors" && (
-              <section className="card" id="flavors">
-                <h2>🧠 Humor flavors</h2>
-                <div className="grid">
-                  {flavors.map((flavor) => (
-                    <div key={flavor.id} className="card">
-                      <div className="row">
-                        <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
-                          {selectedFlavorId === flavor.id ? "Selected" : "Select"}
-                        </button>
-                        <strong>{flavor.name}</strong>
-                      </div>
-                      <p>{flavor.description}</p>
-                      <div className="row">
-                        <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
-                          🪜 Edit steps
-                        </button>
-                        <button type="button" onClick={() => updateFlavor(flavor)}>
-                          Rename
-                        </button>
-                        <button type="button" onClick={() => deleteFlavor(flavor)}>
-                          Delete
-                        </button>
-                        <button type="button" onClick={() => void selectFlavor(flavor.id, "test")}>
-                          🧪 Make captions
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {activePanel === "steps" && (
-              <section className="card" id="steps">
-                <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ""}</h2>
-                {selectedFlavor ? (
-                  <>
-                    <form className="grid" onSubmit={createStep}>
-                      <input
-                        value={stepTitle}
-                        onChange={(e) => setStepTitle(e.target.value)}
-                        placeholder="Step title"
-                        required
-                      />
-                      <textarea
-                        value={stepInstruction}
-                        onChange={(e) => setStepInstruction(e.target.value)}
-                        placeholder="Step instruction"
-                        required
-                      />
-                      <button type="submit">Add step</button>
-                    </form>
-                    <div className="grid">
-                      {steps.map((step) => (
-                        <div key={step.id} className="card">
-                          <div className="row">
-                            <strong>
-                              #{step.position} - {step.title}
-                            </strong>
-                          </div>
-                          <p>{step.instruction}</p>
-                          <div className="row">
-                            <button type="button" onClick={() => moveStep(step, -1)}>
-                              Move up
-                            </button>
-                            <button type="button" onClick={() => moveStep(step, 1)}>
-                              Move down
-                            </button>
-                            <button type="button" onClick={() => updateStep(step)}>
-                              Edit
-                            </button>
-                            <button type="button" onClick={() => deleteStep(step)}>
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p>Select a flavor first.</p>
-                )}
-              </section>
-            )}
-
-            {activePanel === "test" && (
-              <section className="card" id="test">
-                <h2>🧪 Test flavor via API</h2>
-                <p className="small">
-                  Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image {hasImageInput ? "✅" : "❌"}
-                </p>
-                <p className="small">Status: {status || "Idle"}</p>
-                <form className="grid" onSubmit={testFlavor}>
-                  <label className="row">
-                    <span>Upload image:</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e.target.files?.[0] ?? null)}
-                    />
-                  </label>
-                  {imageUploadName && <p className="small">Using uploaded image: {imageUploadName}</p>}
-                  <input
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    placeholder="Image URL from your test set (or upload a file above)"
-                    required
-                  />
-                  {imageUrl && (
-                    <Image
-                      src={imageUrl}
-                      alt="Test input preview"
-                      width={280}
-                      height={180}
-                      unoptimized
-                      style={{
-                        borderRadius: 8,
-                        objectFit: "cover",
-                        width: "280px",
-                        height: "180px",
-                      }}
-                    />
-                  )}
-                  <button type="submit" disabled={!canGenerate}>
-                    {isGenerating ? "Generating captions..." : "Generate captions"}
-                  </button>
-                </form>
-
-              </section>
-            )}
-
-            {activePanel === "runs" && (
-              <section className="card" id="runs">
-                <h2>📜 Recent generated captions</h2>
-                <div className="grid">
-                  {runs.map((run) => (
-                    <div key={run.id} className="card">
-                      <p className="small">{new Date(run.created_datetime_utc).toLocaleString()}</p>
-                      <p>
-                        <strong>Image:</strong> {run.image_url}
-                      </p>
-                      {extractCaptions(run.response_json).length > 0 ? (
-                        <ol>
-                          {extractCaptions(run.response_json).map((caption, index) => (
-                            <li key={`${run.id}-caption-${index}`}>{caption}</li>
-                          ))}
-                        </ol>
-                      ) : (
-                        <p className="small">No parsed captions available for this run.</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-
-          <aside className="card steps-key">
-            <h3>📂 Sections</h3>
-            <div className="tabs-list">
-              <button type="button" onClick={() => setActivePanel("create-flavor")} title="Create humor flavor">
-                ✨ Create
-              </button>
-              <button type="button" onClick={() => setActivePanel("flavors")} title="View/update/delete flavors">
-                🧠 Flavors
-              </button>
-              <button type="button" onClick={() => setActivePanel("steps")} title="Manage flavor steps">
-                🪜 Steps
-              </button>
-              <button type="button" onClick={() => setActivePanel("test")} title="Generate captions">
-                🧪 Test
-              </button>
-              <button type="button" onClick={() => setActivePanel("runs")} title="Generated caption history">
-                📜 Runs
-              </button>
-            </div>
-            <h3>🗺️ Steps key</h3>
-            <ol>
-              <li>Take in an image and output a description in text.</li>
-              <li>Take output from step 1 and output something funny about it.</li>
-              <li>Take output from step 2 and output five short, funny captions.</li>
-            </ol>
-          </aside>
+          <button type="button" onClick={() => updateTheme("system")} disabled={themeMode === "system"}>
+            System
+          </button>
         </div>
-      )}
-    </main>
+
+        <h1>Humor Flavor Prompt Chain</h1>
+        <p className="small">{status}</p>
+
+        <div className="row card">
+          <strong>{user ? `Logged in: ${user.email ?? user.id}` : "Not logged in"}</strong>
+          {!user ? (
+              <button type="button" onClick={loginWithGoogle}>
+                Login with Google
+              </button>
+          ) : (
+              <button type="button" onClick={logout}>
+                Log out
+              </button>
+          )}
+        </div>
+
+        {user && profile && (
+            <p className="small">
+              Admin flags: superadmin={String(profile.is_superadmin)} matrix_admin=
+              {String(profile.is_matrix_admin)}
+            </p>
+        )}
+
+        {!user && <p>Please sign in with Google to continue.</p>}
+
+        {user && !isAdmin() && (
+            <p>
+              Logged in successfully, but this account is not admin in <code>profiles</code>. Ensure the
+              profile row for your auth user has <code>is_superadmin=true</code> or <code>is_matrix_admin=true</code>.
+            </p>
+        )}
+
+        {isAdmin() && (
+            <div className="admin-layout">
+              <div>
+                {activePanel === "create-flavor" && (
+                    <section className="card" id="create-flavor">
+                      <h2>✨ Create humor flavor</h2>
+                      <form className="grid" onSubmit={createFlavor}>
+                        <input
+                            value={newFlavorName}
+                            onChange={(e) => setNewFlavorName(e.target.value)}
+                            placeholder="Flavor name"
+                            required
+                        />
+                        <textarea
+                            value={newFlavorDescription}
+                            onChange={(e) => setNewFlavorDescription(e.target.value)}
+                            placeholder="Description"
+                        />
+                        <label className="row">
+                          <input
+                              type="checkbox"
+                              checked={confirmCreateFlavor}
+                              onChange={(e) => setConfirmCreateFlavor(e.target.checked)}
+                          />
+                          <span>Confirm I want to create this flavor</span>
+                        </label>
+                        <button type="submit" disabled={!confirmCreateFlavor}>
+                          ✅ Confirm create flavor
+                        </button>
+                      </form>
+                      {createFlavorNotice && <p className="small">{createFlavorNotice}</p>}
+                    </section>
+                )}
+
+                {activePanel === "flavors" && (
+                    <section className="card" id="flavors">
+                      <h2>🧠 Humor flavors</h2>
+                      <div className="grid">
+                        {flavors.map((flavor) => (
+                            <div key={flavor.id} className="card">
+                              <div className="row">
+                                <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
+                                  {selectedFlavorId === flavor.id ? "Selected" : "Select"}
+                                </button>
+                                <strong>{flavor.name}</strong>
+                              </div>
+                              <p>{flavor.description}</p>
+                              <div className="row">
+                                <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
+                                  🪜 Edit steps
+                                </button>
+                                <button type="button" onClick={() => updateFlavor(flavor)}>
+                                  Rename
+                                </button>
+                                <button type="button" onClick={() => deleteFlavor(flavor)}>
+                                  Delete
+                                </button>
+                                <button type="button" onClick={() => void selectFlavor(flavor.id, "test")}>
+                                  🧪 Make captions
+                                </button>
+                              </div>
+                            </div>
+                        ))}
+                      </div>
+                    </section>
+                )}
+
+                {activePanel === "steps" && (
+                    <section className="card" id="steps">
+                      <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ""}</h2>
+                      {selectedFlavor ? (
+                          <>
+                            <form className="grid" onSubmit={createStep}>
+                              <input
+                                  value={stepTitle}
+                                  onChange={(e) => setStepTitle(e.target.value)}
+                                  placeholder="Step title"
+                                  required
+                              />
+                              <textarea
+                                  value={stepInstruction}
+                                  onChange={(e) => setStepInstruction(e.target.value)}
+                                  placeholder="Step instruction"
+                                  required
+                              />
+                              <button type="submit">Add step</button>
+                            </form>
+                            <div className="grid">
+                              {steps.map((step) => (
+                                  <div key={step.id} className="card">
+                                    <div className="row">
+                                      <strong>
+                                        #{step.position} - {step.title}
+                                      </strong>
+                                    </div>
+                                    <p>{step.instruction}</p>
+                                    <div className="row">
+                                      <button type="button" onClick={() => moveStep(step, -1)}>
+                                        Move up
+                                      </button>
+                                      <button type="button" onClick={() => moveStep(step, 1)}>
+                                        Move down
+                                      </button>
+                                      <button type="button" onClick={() => updateStep(step)}>
+                                        Edit
+                                      </button>
+                                      <button type="button" onClick={() => deleteStep(step)}>
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                              ))}
+                            </div>
+                          </>
+                      ) : (
+                          <p>Select a flavor first.</p>
+                      )}
+                    </section>
+                )}
+
+                {activePanel === "test" && (
+                    <section className="card" id="test">
+                      <h2>🧪 Test flavor via API</h2>
+                      <p className="small">
+                        Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image {hasImageInput ? "✅" : "❌"}
+                      </p>
+                      <p className="small">Status: {status || "Idle"}</p>
+                      <form className="grid" onSubmit={testFlavor}>
+                        <label className="row">
+                          <span>Upload image:</span>
+                          <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleImageUpload(e.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                        {imageUploadName && <p className="small">Using uploaded image: {imageUploadName}</p>}
+                        <input
+                            value={imageUrl}
+                            onChange={(e) => setImageUrl(e.target.value)}
+                            placeholder="Image URL from your test set (or upload a file above)"
+                            required
+                        />
+                        {imageUrl && (
+                            <Image
+                                src={imageUrl}
+                                alt="Test input preview"
+                                width={280}
+                                height={180}
+                                unoptimized
+                                style={{
+                                  borderRadius: 8,
+                                  objectFit: "cover",
+                                  width: "280px",
+                                  height: "180px",
+                                }}
+                            />
+                        )}
+                        <button type="submit" disabled={!canGenerate}>
+                          {isGenerating ? "Generating captions..." : "Generate captions"}
+                        </button>
+                      </form>
+
+                    </section>
+                )}
+
+                {activePanel === "runs" && (
+                    <section className="card" id="runs">
+                      <h2>📜 Recent generated captions</h2>
+                      <div className="grid">
+                        {runs.map((run) => (
+                            <div key={run.id} className="card">
+                              <p className="small">{new Date(run.created_datetime_utc).toLocaleString()}</p>
+                              <p>
+                                <strong>Image:</strong> {run.image_url}
+                              </p>
+                              {extractCaptions(run.response_json).length > 0 ? (
+                                  <ol>
+                                    {extractCaptions(run.response_json).map((caption, index) => (
+                                        <li key={`${run.id}-caption-${index}`}>{caption}</li>
+                                    ))}
+                                  </ol>
+                              ) : (
+                                  <p className="small">No parsed captions available for this run.</p>
+                              )}
+                            </div>
+                        ))}
+                      </div>
+                    </section>
+                )}
+              </div>
+
+              <aside className="card steps-key">
+                <h3>📂 Sections</h3>
+                <div className="tabs-list">
+                  <button type="button" onClick={() => setActivePanel("create-flavor")} title="Create humor flavor">
+                    ✨ Create
+                  </button>
+                  <button type="button" onClick={() => setActivePanel("flavors")} title="View/update/delete flavors">
+                    🧠 Flavors
+                  </button>
+                  <button type="button" onClick={() => setActivePanel("steps")} title="Manage flavor steps">
+                    🪜 Steps
+                  </button>
+                  <button type="button" onClick={() => setActivePanel("test")} title="Generate captions">
+                    🧪 Test
+                  </button>
+                  <button type="button" onClick={() => setActivePanel("runs")} title="Generated caption history">
+                    📜 Runs
+                  </button>
+                </div>
+                <h3>🗺️ Steps key</h3>
+                <ol>
+                  <li>Take in an image and output a description in text.</li>
+                  <li>Take output from step 1 and output something funny about it.</li>
+                  <li>Take output from step 2 and output five short, funny captions.</li>
+                </ol>
+              </aside>
+            </div>
+        )}
+      </main>
   );
-} //
+}
