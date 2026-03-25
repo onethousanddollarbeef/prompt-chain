@@ -438,27 +438,44 @@ export default function Page() {
       )}
 
       {isAdmin() && (
-        <div className="admin-layout">
-          <div>
-            {activePanel === 'theme' && (
-              <section className="card" id="theme">
-              <h2>🎨 Theme</h2>
-              <div className="row">
-                <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
-                  Light
-                </button>
-                <button onClick={() => setThemeMode('dark')} disabled={theme === 'dark'}>
-                  Dark
-                </button>
-                <button onClick={() => setThemeMode('system')} disabled={theme === 'system'}>
-                  System
-                </button>
-              </div>
-            </section>
-            )}
+        <>
+          <nav className="card emoji-nav" aria-label="Quick actions">
+            <a href="#theme" title="Change theme (light, dark, system)" aria-label="Change theme">
+              🎨
+            </a>
+            <a href="#create-flavor" title="Create a humor flavor" aria-label="Create flavor">
+              ✨
+            </a>
+            <a href="#flavors" title="Update or delete a humor flavor" aria-label="Manage flavors">
+              🧠
+            </a>
+            <a href="#steps" title="Create, edit, delete, or reorder humor flavor steps" aria-label="Manage steps">
+              🪜
+            </a>
+            <a href="#test" title="Generate captions for an image using this flavor" aria-label="Test flavor">
+              🧪
+            </a>
+            <a href="#runs" title="Read generated caption history" aria-label="View generated captions">
+              📜
+            </a>
+          </nav>
 
-          {activePanel === 'create-flavor' && (
-            <section className="card" id="create-flavor">
+          <section className="card" id="theme">
+            <h2>🎨 Theme</h2>
+            <div className="row">
+              <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
+                Light
+              </button>
+              <button onClick={() => setThemeMode('dark')} disabled={theme === 'dark'}>
+                Dark
+              </button>
+              <button onClick={() => setThemeMode('system')} disabled={theme === 'system'}>
+                System
+              </button>
+            </div>
+          </section>
+
+          <section className="card" id="create-flavor">
             <h2>✨ Create humor flavor</h2>
             <form className="grid" onSubmit={createFlavor}>
               <input
@@ -487,8 +504,7 @@ export default function Page() {
           </section>
           )}
 
-          {activePanel === 'flavors' && (
-            <section className="card" id="flavors">
+          <section className="card" id="flavors">
             <h2>🧠 Humor flavors</h2>
             <div className="grid">
               {flavors.map((flavor) => (
@@ -526,8 +542,7 @@ export default function Page() {
           </section>
           )}
 
-          {activePanel === 'steps' && (
-            <section className="card" id="steps">
+          <section className="card" id="steps">
             <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ''}</h2>
             {selectedFlavor ? (
               <>
@@ -569,15 +584,9 @@ export default function Page() {
               <p>Select a flavor first.</p>
             )}
           </section>
-          )}
 
-          {activePanel === 'test' && (
-            <section className="card" id="test">
+          <section className="card" id="test">
             <h2>🧪 Test flavor via API</h2>
-            <p className="small">
-              This is where you make captions for the currently selected flavor. Use “🧪 Make captions” from a flavor
-              card to jump here fast.
-            </p>
             <form className="grid" onSubmit={testFlavor}>
               <label className="row">
                 <span>Upload image:</span>
@@ -608,8 +617,7 @@ export default function Page() {
           </section>
           )}
 
-          {activePanel === 'runs' && (
-            <section className="card" id="runs">
+          <section className="card" id="runs">
             <h2>📜 Recent generated captions</h2>
             <div className="grid">
               {runs.map((run) => (

@@ -106,36 +106,3 @@ button {
 .emoji-nav a:hover {
   transform: translateY(-1px);
 }
-
-.admin-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 1rem;
-  align-items: start;
-}
-
-.steps-key {
-  position: sticky;
-  top: 6rem;
-}
-
-.tabs-list {
-  display: grid;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.tabs-list button {
-  width: 100%;
-  text-align: left;
-}
-
-@media (max-width: 980px) {
-  .admin-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .steps-key {
-    position: static;
-  }
-}
