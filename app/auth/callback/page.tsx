@@ -59,5 +59,5 @@ export default function AuthCallbackPage() {
         <h1>Auth callback</h1>
         <p>{message}</p>
       </main>
-  );
+  ); //
 }
