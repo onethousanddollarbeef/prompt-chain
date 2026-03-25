@@ -66,7 +66,6 @@ export default function Page() {
   const hasImageInput = Boolean(selectedFile || imageUrl.trim());
   const canGenerate =
     Boolean(selectedFlavorId) &&
-    steps.length > 0 &&
     hasImageInput &&
     !isGenerating;
 
@@ -839,9 +838,8 @@ export default function Page() {
                   fast.
                 </p>
                 <p className="small">
-                  Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · steps{" "}
-                  {steps.length > 0 ? "✅" : "❌"} · image{" "}
-                  {hasImageInput ? "✅" : "❌"}
+                  Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image{" "}
+                  {hasImageInput ? "✅" : "❌"} (steps are optional here)
                 </p>
                 <form className="grid" onSubmit={testFlavor}>
                   <label className="row">
