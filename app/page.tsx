@@ -61,7 +61,7 @@ export default function Page() {
         .from('humor_flavor_runs')
         .select('*')
         .eq('flavor_id', flavorId)
-        .order('created_at', { ascending: false })
+        .order('created_datetime_utc', { ascending: false })
         .limit(10);
       if (error) {
         setStatus(error.message);
@@ -78,7 +78,7 @@ export default function Page() {
     const { data, error } = await supabase
       .from('humor_flavors')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_datetime_utc', { ascending: false });
     if (error) {
       setStatus(error.message);
       return;
@@ -185,7 +185,7 @@ export default function Page() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: `${window.location.origin}/auth/callback`
       }
     });
     if (error) {
@@ -212,7 +212,8 @@ export default function Page() {
     const { error } = await supabase.from('humor_flavors').insert({
       name: newFlavorName.trim(),
       description: newFlavorDescription.trim() || null,
-      created_by: profile.id
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id
     });
 
     if (error) {
@@ -227,14 +228,17 @@ export default function Page() {
   }
 
   async function updateFlavor(flavor: HumorFlavor) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
     const newName = prompt('New flavor name', flavor.name);
     if (!newName) return;
 
     const { error } = await supabase
       .from('humor_flavors')
-      .update({ name: newName })
+      .update({
+        name: newName,
+        modified_by_user_id: profile.id
+      })
       .eq('id', flavor.id);
 
     if (error) {
@@ -261,14 +265,16 @@ export default function Page() {
 
   async function createStep(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
+    if (!supabase || !profile || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
 
     const nextPos = steps.length ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
     const { error } = await supabase.from('humor_flavor_steps').insert({
       flavor_id: selectedFlavorId,
       position: nextPos,
       title: stepTitle.trim(),
-      instruction: stepInstruction.trim()
+      instruction: stepInstruction.trim(),
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id
     });
     if (error) {
       setStatus(error.message);
@@ -281,7 +287,7 @@ export default function Page() {
   }
 
   async function updateStep(step: HumorFlavorStep) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
     const title = prompt('Step title', step.title);
     if (!title) return;
@@ -290,7 +296,7 @@ export default function Page() {
 
     const { error } = await supabase
       .from('humor_flavor_steps')
-      .update({ title, instruction })
+      .update({ title, instruction, modified_by_user_id: profile.id })
       .eq('id', step.id);
 
     if (error) {
@@ -314,7 +320,7 @@ export default function Page() {
   }
 
   async function moveStep(step: HumorFlavorStep, direction: -1 | 1) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
     const currentIndex = steps.findIndex((s) => s.id === step.id);
     const targetIndex = currentIndex + direction;
@@ -329,7 +335,7 @@ export default function Page() {
     for (const update of updates) {
       const { error } = await supabase
         .from('humor_flavor_steps')
-        .update({ position: update.position })
+        .update({ position: update.position, modified_by_user_id: profile.id })
         .eq('id', update.id);
       if (error) {
         setStatus(error.message);
@@ -342,7 +348,7 @@ export default function Page() {
 
   async function testFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavor || !imageUrl.trim()) return;
+    if (!supabase || !profile || !selectedFlavor || !imageUrl.trim()) return;
 
     const res = await fetch('/api/generate-captions', {
       method: 'POST',
@@ -365,7 +371,9 @@ export default function Page() {
     await supabase.from('humor_flavor_runs').insert({
       flavor_id: selectedFlavor.id,
       image_url: imageUrl.trim(),
-      response_json: payload.data
+      response_json: payload.data,
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id
     });
     await loadRuns(selectedFlavor.id);
     setStatus('Captions generated and saved.');
@@ -387,7 +395,6 @@ export default function Page() {
   return (
     <main className="container">
       <h1>Humor Flavor Prompt Chain</h1>
-      <p><strong>THIS IS THE NEW DEPLOYMENT (PR6)</strong></p>
       <p className="small">{status}</p>
       <div className="row card">
         <strong>{user ? `Logged in: ${user.email ?? user.id}` : 'Not logged in'}</strong>
@@ -415,8 +422,29 @@ export default function Page() {
 
       {isAdmin() && (
         <>
-          <section className="card">
-            <h2>Theme</h2>
+          <nav className="card emoji-nav" aria-label="Quick actions">
+            <a href="#theme" title="Change theme (light, dark, system)" aria-label="Change theme">
+              🎨
+            </a>
+            <a href="#create-flavor" title="Create a humor flavor" aria-label="Create flavor">
+              ✨
+            </a>
+            <a href="#flavors" title="Update or delete a humor flavor" aria-label="Manage flavors">
+              🧠
+            </a>
+            <a href="#steps" title="Create, edit, delete, or reorder humor flavor steps" aria-label="Manage steps">
+              🪜
+            </a>
+            <a href="#test" title="Generate captions for an image using this flavor" aria-label="Test flavor">
+              🧪
+            </a>
+            <a href="#runs" title="Read generated caption history" aria-label="View generated captions">
+              📜
+            </a>
+          </nav>
+
+          <section className="card" id="theme">
+            <h2>🎨 Theme</h2>
             <div className="row">
               <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
                 Light
@@ -430,8 +458,8 @@ export default function Page() {
             </div>
           </section>
 
-          <section className="card">
-            <h2>Create humor flavor</h2>
+          <section className="card" id="create-flavor">
+            <h2>✨ Create humor flavor</h2>
             <form className="grid" onSubmit={createFlavor}>
               <input
                 value={newFlavorName}
@@ -448,8 +476,8 @@ export default function Page() {
             </form>
           </section>
 
-          <section className="card">
-            <h2>Humor flavors</h2>
+          <section className="card" id="flavors">
+            <h2>🧠 Humor flavors</h2>
             <div className="grid">
               {flavors.map((flavor) => (
                 <div key={flavor.id} className="card">
@@ -475,8 +503,8 @@ export default function Page() {
             </div>
           </section>
 
-          <section className="card">
-            <h2>Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ''}</h2>
+          <section className="card" id="steps">
+            <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ''}</h2>
             {selectedFlavor ? (
               <>
                 <form className="grid" onSubmit={createStep}>
@@ -518,8 +546,8 @@ export default function Page() {
             )}
           </section>
 
-          <section className="card">
-            <h2>Test flavor via API</h2>
+          <section className="card" id="test">
+            <h2>🧪 Test flavor via API</h2>
             <form className="grid" onSubmit={testFlavor}>
               <input
                 value={imageUrl}
@@ -534,12 +562,12 @@ export default function Page() {
             {apiResult && <pre>{apiResult}</pre>}
           </section>
 
-          <section className="card">
-            <h2>Recent generated captions</h2>
+          <section className="card" id="runs">
+            <h2>📜 Recent generated captions</h2>
             <div className="grid">
               {runs.map((run) => (
                 <div key={run.id} className="card">
-                  <p className="small">{new Date(run.created_at).toLocaleString()}</p>
+                  <p className="small">{new Date(run.created_datetime_utc).toLocaleString()}</p>
                   <p>
                     <strong>Image:</strong> {run.image_url}
                   </p>
