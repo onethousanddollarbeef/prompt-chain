@@ -31,6 +31,7 @@ export default function Page() {
   const [selectedFlavorId, setSelectedFlavorId] = useState<string>("");
   const [steps, setSteps] = useState<HumorFlavorStep[]>([]);
   const [runs, setRuns] = useState<CaptionRun[]>([]);
+  const [runsTableAvailable, setRunsTableAvailable] = useState(true);
 
   const [newFlavorName, setNewFlavorName] = useState("");
   const [newFlavorDescription, setNewFlavorDescription] = useState("");
@@ -399,7 +400,28 @@ export default function Page() {
       return;
     }
 
-    setApiResult(JSON.stringify(payload.data, null, 2));
+    const payload = (await captionsResponse.json()) as unknown;
+    setApiResult(JSON.stringify(payload, null, 2));
+
+    if (runsTableAvailable) {
+      const { error: insertError } = await supabase.from("humor_flavor_runs").insert({
+        flavor_id: selectedFlavor.id,
+        image_url: resolvedImageUrl,
+        response_json: payload,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      });
+
+      if (insertError) {
+        if (insertError.message.includes("humor_flavor_runs")) {
+          setRunsTableAvailable(false);
+          setStatus("Captions generated. History table unavailable, so run was not saved.");
+          return;
+        }
+
+        setStatus(`Captions generated, but saving run failed: ${insertError.message}`);
+        return;
+      }
 
     await supabase.from("humor_flavor_runs").insert({
       flavor_id: selectedFlavor.id,
