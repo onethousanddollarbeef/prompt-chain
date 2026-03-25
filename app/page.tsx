@@ -46,6 +46,7 @@ export default function Page() {
   const [newFlavorName, setNewFlavorName] = useState("");
   const [newFlavorDescription, setNewFlavorDescription] = useState("");
   const [confirmCreateFlavor, setConfirmCreateFlavor] = useState(false);
+  const [createFlavorNotice, setCreateFlavorNotice] = useState("");
 
   const [stepTitle, setStepTitle] = useState("");
   const [stepInstruction, setStepInstruction] = useState("");
@@ -68,6 +69,50 @@ export default function Page() {
     Boolean(selectedFlavorId) &&
     hasImageInput &&
     !isGenerating;
+  const parsedCaptions = useMemo(() => {
+    if (!apiResult) return [];
+    try {
+      const payload = JSON.parse(apiResult) as unknown;
+      if (Array.isArray(payload)) {
+        return payload
+          .map((item) => {
+            if (!item || typeof item !== "object") return "";
+            const obj = item as Record<string, unknown>;
+            const value = obj.content ?? obj.caption ?? obj.text;
+            return typeof value === "string" ? value : "";
+          })
+          .filter((text) => text.trim().length > 0);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }, [apiResult]);
+
+  function normalizeFlavorRow(row: Record<string, unknown>): HumorFlavor {
+    return {
+      id: String(row.id ?? ""),
+      name: String(row.name ?? row.flavor_name ?? row.title ?? "(unnamed flavor)"),
+      description:
+        typeof row.description === "string"
+          ? row.description
+          : typeof row.flavor_description === "string"
+            ? row.flavor_description
+            : null,
+      created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
+      modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? ""),
+      created_datetime_utc: String(
+        row.created_datetime_utc ?? row.created_at ?? new Date().toISOString(),
+      ),
+      modified_datetime_utc: String(
+        row.modified_datetime_utc ??
+          row.modified_at ??
+          row.created_datetime_utc ??
+          row.created_at ??
+          new Date().toISOString(),
+      ),
+    };
+  }
 
   const loadSteps = useCallback(
     async (flavorId: string) => {
@@ -126,12 +171,15 @@ export default function Page() {
       setStatus(error.message);
       return;
     }
-    setFlavors(data ?? []);
+    const normalizedFlavors = (data ?? []).map((row) =>
+      normalizeFlavorRow(row as Record<string, unknown>),
+    );
+    setFlavors(normalizedFlavors);
 
-    if (data?.[0] && !selectedFlavorId) {
-      setSelectedFlavorId(data[0].id);
-      await loadSteps(data[0].id);
-      await loadRuns(data[0].id);
+    if (normalizedFlavors[0] && !selectedFlavorId) {
+      setSelectedFlavorId(normalizedFlavors[0].id);
+      await loadSteps(normalizedFlavors[0].id);
+      await loadRuns(normalizedFlavors[0].id);
     }
   }, [loadRuns, loadSteps, selectedFlavorId, supabase]);
 
@@ -252,24 +300,38 @@ export default function Page() {
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !profile || !newFlavorName.trim()) return;
+    setCreateFlavorNotice("");
 
-    const { error } = await supabase.from("humor_flavors").insert({
+    let { error } = await supabase.from("humor_flavors").insert({
       name: newFlavorName.trim(),
       description: newFlavorDescription.trim() || null,
       created_by_user_id: profile.id,
       modified_by_user_id: profile.id,
     });
 
+    if (error?.message.includes("name")) {
+      const fallback = await supabase.from("humor_flavors").insert({
+        flavor_name: newFlavorName.trim(),
+        flavor_description: newFlavorDescription.trim() || null,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      });
+      error = fallback.error;
+    }
+
     if (error) {
       setStatus(error.message);
+      setCreateFlavorNotice(`❌ Create failed: ${error.message}`);
       return;
     }
 
+    const createdFlavorName = newFlavorName.trim();
     setNewFlavorName("");
     setNewFlavorDescription("");
     setConfirmCreateFlavor(false);
     await loadFlavors();
-    setStatus("Flavor created.");
+    setStatus(`Flavor "${createdFlavorName}" created.`);
+    setCreateFlavorNotice(`✅ Flavor "${createdFlavorName}" created successfully.`);
   }
 
   async function updateFlavor(flavor: HumorFlavor) {
@@ -278,13 +340,24 @@ export default function Page() {
     const newName = prompt("New flavor name", flavor.name);
     if (!newName) return;
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from("humor_flavors")
       .update({
         name: newName,
         modified_by_user_id: profile.id,
       })
       .eq("id", flavor.id);
+
+    if (error?.message.includes("name")) {
+      const fallback = await supabase
+        .from("humor_flavors")
+        .update({
+          flavor_name: newName,
+          modified_by_user_id: profile.id,
+        })
+        .eq("id", flavor.id);
+      error = fallback.error;
+    }
 
     if (error) {
       setStatus(error.message);
@@ -510,24 +583,42 @@ export default function Page() {
       const registerPayload = (await registerResponse.json()) as { imageId: string };
       resolvedImageId = registerPayload.imageId;
 
-      const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({
-          imageId: resolvedImageId,
-          humorFlavorId: selectedFlavor.id,
-        }),
-      });
+      const generateBodies = [
+        { imageId: resolvedImageId, humorFlavorId: selectedFlavor.id },
+        { imageId: resolvedImageId, humor_flavor_id: selectedFlavor.id },
+        { imageId: resolvedImageId },
+      ];
 
-      if (!captionsResponse.ok) {
-        const body = await parseApiBody(captionsResponse);
-        setStatus(
-          `Step 4 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+      let payload: unknown = null;
+      let generationSucceeded = false;
+      let lastGenerateError = "";
+
+      for (const requestBody of generateBodies) {
+        const captionsResponse = await fetch(
+          `${API_BASE_URL}/pipeline/generate-captions`,
+          {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify(requestBody),
+          },
         );
+
+        if (captionsResponse.ok) {
+          payload = (await captionsResponse.json()) as unknown;
+          generationSucceeded = true;
+          break;
+        }
+
+        const body = await parseApiBody(captionsResponse);
+        lastGenerateError =
+          typeof body === "string" ? body : JSON.stringify(body);
+      }
+
+      if (!generationSucceeded) {
+        setStatus(`Step 4 failed: ${lastGenerateError}`);
         return;
       }
 
-      const payload = (await captionsResponse.json()) as unknown;
       setApiResult(JSON.stringify(payload, null, 2));
 
       if (runsTableAvailable) {
@@ -706,6 +797,7 @@ export default function Page() {
                     ✅ Confirm create flavor
                   </button>
                 </form>
+                {createFlavorNotice && <p className="small">{createFlavorNotice}</p>}
               </section>
             )}
 
@@ -841,6 +933,9 @@ export default function Page() {
                   Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image{" "}
                   {hasImageInput ? "✅" : "❌"} (steps are optional here)
                 </p>
+                <p className="small">
+                  Status: {status || "Idle"}
+                </p>
                 <form className="grid" onSubmit={testFlavor}>
                   <label className="row">
                     <span>Upload image:</span>
@@ -889,6 +984,16 @@ export default function Page() {
                   <p className="small">
                     Note: <code>humor_flavor_runs</code> is missing in this project, so generated runs will not be persisted.
                   </p>
+                )}
+                {parsedCaptions.length > 0 && (
+                  <div className="grid">
+                    <h3>Generated captions</h3>
+                    {parsedCaptions.map((caption, index) => (
+                      <p key={`${caption}-${index}`} className="card">
+                        {caption}
+                      </p>
+                    ))}
+                  </div>
                 )}
                 {apiResult && <pre>{apiResult}</pre>}
               </section>
