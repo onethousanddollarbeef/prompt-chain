@@ -29,12 +29,6 @@ const SUPPORTED_IMAGE_TYPES = new Set([
   "image/gif",
   "image/heic",
 ]);
-    | "theme"
-    | "create-flavor"
-    | "flavors"
-    | "steps"
-    | "test"
-    | "runs";
 
 export default function Page() {
   const [user, setUser] = useState<User | null>(null);
@@ -61,6 +55,7 @@ export default function Page() {
   const [imageUploadName, setImageUploadName] = useState("");
   const [apiResult, setApiResult] = useState<string>("");
   const [status, setStatus] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -68,6 +63,12 @@ export default function Page() {
     () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
     [flavors, selectedFlavorId],
   );
+  const hasImageInput = Boolean(selectedFile || imageUrl.trim());
+  const canGenerate =
+    Boolean(selectedFlavorId) &&
+    steps.length > 0 &&
+    hasImageInput &&
+    !isGenerating;
 
   const loadSteps = useCallback(
     async (flavorId: string) => {
@@ -113,45 +114,6 @@ export default function Page() {
       setRuns(data ?? []);
     },
     [supabase],
-      () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
-      [flavors, selectedFlavorId],
-  );
-
-  const loadSteps = useCallback(
-      async (flavorId: string) => {
-        if (!supabase) return;
-
-        const { data, error } = await supabase
-            .from("humor_flavor_steps")
-            .select("*")
-            .eq("flavor_id", flavorId)
-            .order("position", { ascending: true });
-        if (error) {
-          setStatus(error.message);
-          return;
-        }
-        setSteps(data ?? []);
-      },
-      [supabase],
-  );
-
-  const loadRuns = useCallback(
-      async (flavorId: string) => {
-        if (!supabase) return;
-
-        const { data, error } = await supabase
-            .from("humor_flavor_runs")
-            .select("*")
-            .eq("flavor_id", flavorId)
-            .order("created_datetime_utc", { ascending: false })
-            .limit(10);
-        if (error) {
-          setStatus(error.message);
-          return;
-        }
-        setRuns(data ?? []);
-      },
-      [supabase],
   );
 
   const loadFlavors = useCallback(async () => {
@@ -161,9 +123,6 @@ export default function Page() {
       .from("humor_flavors")
       .select("*")
       .order("created_datetime_utc", { ascending: false });
-        .from("humor_flavors")
-        .select("*")
-        .order("created_datetime_utc", { ascending: false });
     if (error) {
       setStatus(error.message);
       return;
@@ -213,41 +172,6 @@ export default function Page() {
       }
     },
     [loadFlavors, supabase],
-      async (currentUser: User | null) => {
-        if (!supabase || !currentUser) {
-          setProfile(null);
-          setFlavors([]);
-          setSteps([]);
-          setRuns([]);
-          setSelectedFlavorId("");
-          return;
-        }
-
-        const { data: profileData, error } = await supabase
-            .from("profiles")
-            .select("id, is_superadmin, is_matrix_admin")
-            .eq("id", currentUser.id)
-            .single();
-
-        if (error) {
-          setProfile(null);
-          setStatus(`Profile lookup failed: ${error.message}`);
-          return;
-        }
-
-        setProfile(profileData);
-        if (profileData.is_superadmin || profileData.is_matrix_admin) {
-          setStatus("Authenticated as admin.");
-          await loadFlavors();
-        } else {
-          setStatus("Logged in, but account is not admin in profiles table.");
-          setFlavors([]);
-          setSteps([]);
-          setRuns([]);
-          setSelectedFlavorId("");
-        }
-      },
-      [loadFlavors, supabase],
   );
 
   const init = useCallback(async () => {
@@ -282,7 +206,6 @@ export default function Page() {
   useEffect(() => {
     const savedTheme =
       (localStorage.getItem("theme-mode") as ThemeMode | null) ?? "system";
-        (localStorage.getItem("theme-mode") as ThemeMode | null) ?? "system";
     setTheme(savedTheme);
     document.documentElement.dataset.theme = savedTheme;
     let cleanup: (() => void) | undefined;
@@ -363,12 +286,6 @@ export default function Page() {
         modified_by_user_id: profile.id,
       })
       .eq("id", flavor.id);
-        .from("humor_flavors")
-        .update({
-          name: newName,
-          modified_by_user_id: profile.id,
-        })
-        .eq("id", flavor.id);
 
     if (error) {
       setStatus(error.message);
@@ -385,9 +302,6 @@ export default function Page() {
       .from("humor_flavors")
       .delete()
       .eq("id", flavor.id);
-        .from("humor_flavors")
-        .delete()
-        .eq("id", flavor.id);
     if (error) {
       setStatus(error.message);
       return;
@@ -406,19 +320,12 @@ export default function Page() {
       !selectedFlavorId ||
       !stepTitle.trim() ||
       !stepInstruction.trim()
-        !supabase ||
-        !profile ||
-        !selectedFlavorId ||
-        !stepTitle.trim() ||
-        !stepInstruction.trim()
     )
       return;
 
     const nextPos = steps.length
       ? Math.max(...steps.map((s) => s.position)) + 1
       : 1;
-        ? Math.max(...steps.map((s) => s.position)) + 1
-        : 1;
     const { error } = await supabase.from("humor_flavor_steps").insert({
       flavor_id: selectedFlavorId,
       position: nextPos,
@@ -449,9 +356,6 @@ export default function Page() {
       .from("humor_flavor_steps")
       .update({ title, instruction, modified_by_user_id: profile.id })
       .eq("id", step.id);
-        .from("humor_flavor_steps")
-        .update({ title, instruction, modified_by_user_id: profile.id })
-        .eq("id", step.id);
 
     if (error) {
       setStatus(error.message);
@@ -469,9 +373,6 @@ export default function Page() {
       .from("humor_flavor_steps")
       .delete()
       .eq("id", step.id);
-        .from("humor_flavor_steps")
-        .delete()
-        .eq("id", step.id);
     if (error) {
       setStatus(error.message);
       return;
@@ -497,9 +398,6 @@ export default function Page() {
         .from("humor_flavor_steps")
         .update({ position: update.position, modified_by_user_id: profile.id })
         .eq("id", update.id);
-          .from("humor_flavor_steps")
-          .update({ position: update.position, modified_by_user_id: profile.id })
-          .eq("id", update.id);
       if (error) {
         setStatus(error.message);
         return;
@@ -511,7 +409,7 @@ export default function Page() {
 
   async function testFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !profile || !selectedFlavor) return;
+    if (!supabase || !profile || !selectedFlavor || isGenerating) return;
 
     const parseApiBody = async (res: Response) => {
       const text = await res.text();
@@ -537,141 +435,131 @@ export default function Page() {
       "Content-Type": "application/json",
     };
 
-    setStatus("Running caption pipeline...");
+    setIsGenerating(true);
+    setStatus("Generate clicked. Running caption pipeline...");
     setApiResult("");
 
-    let resolvedImageUrl = imageUrl.trim();
-    let resolvedImageId = "";
+    try {
+      let resolvedImageUrl = imageUrl.trim();
+      let resolvedImageId = "";
 
-    if (selectedFile) {
-      const presignedResponse = await fetch(
-        `${API_BASE_URL}/pipeline/generate-presigned-url`,
-        {
-          method: "POST",
-          headers: authHeaders,
-          body: JSON.stringify({ contentType: selectedFile.type }),
-        },
-      );
-
-      if (!presignedResponse.ok) {
-        const body = await parseApiBody(presignedResponse);
-        setStatus(
-          `Step 1 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+      if (selectedFile) {
+        const presignedResponse = await fetch(
+          `${API_BASE_URL}/pipeline/generate-presigned-url`,
+          {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({ contentType: selectedFile.type }),
+          },
         );
-        return;
-      }
 
-      const presignedPayload = (await presignedResponse.json()) as {
-        presignedUrl: string;
-        cdnUrl: string;
-      };
-
-      const uploadResponse = await fetch(presignedPayload.presignedUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": selectedFile.type,
-        },
-        body: selectedFile,
-      });
-
-      if (!uploadResponse.ok) {
-        const body = await parseApiBody(uploadResponse);
-        setStatus(
-          `Step 2 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
-        );
-        return;
-      }
-
-      resolvedImageUrl = presignedPayload.cdnUrl;
-      setImageUrl(presignedPayload.cdnUrl);
-    }
-
-    if (!resolvedImageUrl) {
-      setStatus("Please upload an image or provide an image URL first.");
-      return;
-    }
-
-    const registerResponse = await fetch(
-      `${API_BASE_URL}/pipeline/upload-image-from-url`,
-      {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({ imageUrl: resolvedImageUrl, isCommonUse: false }),
-      },
-    );
-
-    if (!registerResponse.ok) {
-      const body = await parseApiBody(registerResponse);
-      setStatus(
-        `Step 3 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
-      );
-      return;
-    }
-
-    const registerPayload = (await registerResponse.json()) as { imageId: string };
-    resolvedImageId = registerPayload.imageId;
-
-    const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
-      method: "POST",
-      headers: authHeaders,
-      body: JSON.stringify({
-        imageId: resolvedImageId,
-        humorFlavorId: selectedFlavor.id,
-      }),
-    });
-
-    if (!captionsResponse.ok) {
-      const body = await parseApiBody(captionsResponse);
-      setStatus(
-        `Step 4 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
-      );
-    if (!supabase || !profile || !selectedFlavor || !imageUrl.trim()) return;
-
-    const res = await fetch("/api/generate-captions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        flavor: selectedFlavor,
-        steps,
-        imageUrl: imageUrl.trim(),
-      }),
-    });
-
-    const payload = (await res.json()) as { error?: string; data?: unknown };
-    if (!res.ok) {
-      setStatus(payload.error ?? "Generation failed");
-      return;
-    }
-
-    const payload = (await captionsResponse.json()) as unknown;
-    setApiResult(JSON.stringify(payload, null, 2));
-
-    if (runsTableAvailable) {
-      const { error: insertError } = await supabase.from("humor_flavor_runs").insert({
-        flavor_id: selectedFlavor.id,
-        image_url: resolvedImageUrl,
-        response_json: payload,
-        created_by_user_id: profile.id,
-        modified_by_user_id: profile.id,
-      });
-
-      if (insertError) {
-        if (insertError.message.includes("humor_flavor_runs")) {
-          setRunsTableAvailable(false);
-          setStatus("Captions generated. History table unavailable, so run was not saved.");
+        if (!presignedResponse.ok) {
+          const body = await parseApiBody(presignedResponse);
+          setStatus(
+            `Step 1 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+          );
           return;
         }
 
-        setStatus(`Captions generated, but saving run failed: ${insertError.message}`);
+        const presignedPayload = (await presignedResponse.json()) as {
+          presignedUrl: string;
+          cdnUrl: string;
+        };
+
+        const uploadResponse = await fetch(presignedPayload.presignedUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": selectedFile.type,
+          },
+          body: selectedFile,
+        });
+
+        if (!uploadResponse.ok) {
+          const body = await parseApiBody(uploadResponse);
+          setStatus(
+            `Step 2 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+          );
+          return;
+        }
+
+        resolvedImageUrl = presignedPayload.cdnUrl;
+        setImageUrl(presignedPayload.cdnUrl);
+      }
+
+      if (!resolvedImageUrl) {
+        setStatus("Please upload an image or provide an image URL first.");
         return;
       }
 
-      await loadRuns(selectedFlavor.id);
-      setStatus(`Captions generated for image ${resolvedImageId} and saved.`);
-      return;
-    }
+      const registerResponse = await fetch(
+        `${API_BASE_URL}/pipeline/upload-image-from-url`,
+        {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({ imageUrl: resolvedImageUrl, isCommonUse: false }),
+        },
+      );
 
-    setStatus(`Captions generated for image ${resolvedImageId}.`);
+      if (!registerResponse.ok) {
+        const body = await parseApiBody(registerResponse);
+        setStatus(
+          `Step 3 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+        );
+        return;
+      }
+
+      const registerPayload = (await registerResponse.json()) as { imageId: string };
+      resolvedImageId = registerPayload.imageId;
+
+      const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          imageId: resolvedImageId,
+          humorFlavorId: selectedFlavor.id,
+        }),
+      });
+
+      if (!captionsResponse.ok) {
+        const body = await parseApiBody(captionsResponse);
+        setStatus(
+          `Step 4 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+        );
+        return;
+      }
+
+      const payload = (await captionsResponse.json()) as unknown;
+      setApiResult(JSON.stringify(payload, null, 2));
+
+      if (runsTableAvailable) {
+        const { error: insertError } = await supabase.from("humor_flavor_runs").insert({
+          flavor_id: selectedFlavor.id,
+          image_url: resolvedImageUrl,
+          response_json: payload,
+          created_by_user_id: profile.id,
+          modified_by_user_id: profile.id,
+        });
+
+        if (insertError) {
+          if (insertError.message.includes("humor_flavor_runs")) {
+            setRunsTableAvailable(false);
+            setStatus("Captions generated. History table unavailable, so run was not saved.");
+            return;
+          }
+
+          setStatus(`Captions generated, but saving run failed: ${insertError.message}`);
+          return;
+        }
+
+        await loadRuns(selectedFlavor.id);
+        setStatus(`Captions generated for image ${resolvedImageId} and saved.`);
+        return;
+      }
+
+      setStatus(`Captions generated for image ${resolvedImageId}.`);
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   function handleImageUpload(file: File | null) {
@@ -689,20 +577,8 @@ export default function Page() {
       return;
     }
     setStatus("");
+    setApiResult("");
     setSelectedFile(file);
-    await supabase.from("humor_flavor_runs").insert({
-      flavor_id: selectedFlavor.id,
-      image_url: imageUrl.trim(),
-      response_json: payload.data,
-      created_by_user_id: profile.id,
-      modified_by_user_id: profile.id,
-    });
-    await loadRuns(selectedFlavor.id);
-    setStatus("Captions generated and saved.");
-  }
-
-  function handleImageUpload(file: File | null) {
-    if (!file) return;
     setImageUploadName(file.name);
     const reader = new FileReader();
     reader.onload = () => {
@@ -733,10 +609,6 @@ export default function Page() {
           Add these in Vercel Project Settings → Environment Variables, then redeploy.
         </p>
       </main>
-        <main className="container">
-          <h1>Humor Flavor Prompt Chain</h1>
-          <p>Missing Supabase environment variables.</p>
-        </main>
     );
   }
 
@@ -966,6 +838,11 @@ export default function Page() {
                   flavor. Use “🧪 Make captions” from a flavor card to jump here
                   fast.
                 </p>
+                <p className="small">
+                  Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · steps{" "}
+                  {steps.length > 0 ? "✅" : "❌"} · image{" "}
+                  {hasImageInput ? "✅" : "❌"}
+                </p>
                 <form className="grid" onSubmit={testFlavor}>
                   <label className="row">
                     <span>Upload image:</span>
@@ -1005,9 +882,9 @@ export default function Page() {
                   )}
                   <button
                     type="submit"
-                    disabled={!selectedFlavorId || steps.length === 0}
+                    disabled={!canGenerate}
                   >
-                    Generate captions
+                    {isGenerating ? "Generating captions..." : "Generate captions"}
                   </button>
                 </form>
                 {!runsTableAvailable && (
@@ -1102,361 +979,5 @@ export default function Page() {
         </div>
       )}
     </main>
-      <main className="container">
-        <h1>Humor Flavor Prompt Chain</h1>
-        <p className="small">{status}</p>
-        <div className="row card">
-          <strong>
-            {user ? `Logged in: ${user.email ?? user.id}` : "Not logged in"}
-          </strong>
-          {!user ? (
-              <button type="button" onClick={loginWithGoogle}>
-                Login with Google
-              </button>
-          ) : (
-              <button type="button" onClick={logout}>
-                Log out
-              </button>
-          )}
-        </div>
-
-        {user && profile && (
-            <p className="small">
-              Admin flags: superadmin={String(profile.is_superadmin)} matrix_admin=
-              {String(profile.is_matrix_admin)}
-            </p>
-        )}
-
-        {!user && <p>Please sign in with Google to continue.</p>}
-
-        {user && !isAdmin() && (
-            <p>
-              Logged in successfully, but this account is not admin in{" "}
-              <code>profiles</code>. Ensure the profile row for your auth user has{" "}
-              <code>is_superadmin=true</code> or <code>is_matrix_admin=true</code>.
-            </p>
-        )}
-
-        {isAdmin() && (
-            <div className="admin-layout">
-              <div>
-                {activePanel === "theme" && (
-                    <section className="card" id="theme">
-                      <h2>🎨 Theme</h2>
-                      <div className="row">
-                        <button
-                            type="button"
-                            onClick={() => setThemeMode("light")}
-                            disabled={theme === "light"}
-                        >
-                          Light
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setThemeMode("dark")}
-                            disabled={theme === "dark"}
-                        >
-                          Dark
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setThemeMode("system")}
-                            disabled={theme === "system"}
-                        >
-                          System
-                        </button>
-                      </div>
-                    </section>
-                )}
-
-                {activePanel === "create-flavor" && (
-                    <section className="card" id="create-flavor">
-                      <h2>✨ Create humor flavor</h2>
-                      <form className="grid" onSubmit={createFlavor}>
-                        <input
-                            value={newFlavorName}
-                            onChange={(e) => setNewFlavorName(e.target.value)}
-                            placeholder="Flavor name"
-                            required
-                        />
-                        <textarea
-                            value={newFlavorDescription}
-                            onChange={(e) => setNewFlavorDescription(e.target.value)}
-                            placeholder="Description"
-                        />
-                        <label className="row">
-                          <input
-                              type="checkbox"
-                              checked={confirmCreateFlavor}
-                              onChange={(e) => setConfirmCreateFlavor(e.target.checked)}
-                          />
-                          <span>Confirm I want to create this flavor</span>
-                        </label>
-                        <button type="submit" disabled={!confirmCreateFlavor}>
-                          ✅ Confirm create flavor
-                        </button>
-                      </form>
-                    </section>
-                )}
-
-                {activePanel === "flavors" && (
-                    <section className="card" id="flavors">
-                      <h2>🧠 Humor flavors</h2>
-                      <div className="grid">
-                        {flavors.map((flavor) => (
-                            <div key={flavor.id} className="card">
-                              <div className="row">
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                      setSelectedFlavorId(flavor.id);
-                                      await loadSteps(flavor.id);
-                                      await loadRuns(flavor.id);
-                                    }}
-                                >
-                                  {selectedFlavorId === flavor.id
-                                      ? "Selected"
-                                      : "Select"}
-                                </button>
-                                <strong>{flavor.name}</strong>
-                              </div>
-                              <p>{flavor.description}</p>
-                              <div className="row">
-                                <button
-                                    type="button"
-                                    onClick={() => updateFlavor(flavor)}
-                                >
-                                  Rename
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => deleteFlavor(flavor)}
-                                >
-                                  Delete
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                      setSelectedFlavorId(flavor.id);
-                                      await loadSteps(flavor.id);
-                                      await loadRuns(flavor.id);
-                                      setActivePanel("test");
-                                    }}
-                                >
-                                  🧪 Make captions
-                                </button>
-                              </div>
-                            </div>
-                        ))}
-                      </div>
-                    </section>
-                )}
-
-                {activePanel === "steps" && (
-                    <section className="card" id="steps">
-                      <h2>
-                        🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ""}
-                      </h2>
-                      {selectedFlavor ? (
-                          <>
-                            <form className="grid" onSubmit={createStep}>
-                              <input
-                                  value={stepTitle}
-                                  onChange={(e) => setStepTitle(e.target.value)}
-                                  placeholder="Step title"
-                                  required
-                              />
-                              <textarea
-                                  value={stepInstruction}
-                                  onChange={(e) => setStepInstruction(e.target.value)}
-                                  placeholder="Step instruction"
-                                  required
-                              />
-                              <button type="submit">Add step</button>
-                            </form>
-                            <div className="grid">
-                              {steps.map((step) => (
-                                  <div key={step.id} className="card">
-                                    <div className="row">
-                                      <strong>
-                                        #{step.position} - {step.title}
-                                      </strong>
-                                    </div>
-                                    <p>{step.instruction}</p>
-                                    <div className="row">
-                                      <button
-                                          type="button"
-                                          onClick={() => moveStep(step, -1)}
-                                      >
-                                        Move up
-                                      </button>
-                                      <button
-                                          type="button"
-                                          onClick={() => moveStep(step, 1)}
-                                      >
-                                        Move down
-                                      </button>
-                                      <button
-                                          type="button"
-                                          onClick={() => updateStep(step)}
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                          type="button"
-                                          onClick={() => deleteStep(step)}
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  </div>
-                              ))}
-                            </div>
-                          </>
-                      ) : (
-                          <p>Select a flavor first.</p>
-                      )}
-                    </section>
-                )}
-
-                {activePanel === "test" && (
-                    <section className="card" id="test">
-                      <h2>🧪 Test flavor via API</h2>
-                      <p className="small">
-                        This is where you make captions for the currently selected
-                        flavor. Use “🧪 Make captions” from a flavor card to jump here
-                        fast.
-                      </p>
-                      <form className="grid" onSubmit={testFlavor}>
-                        <label className="row">
-                          <span>Upload image:</span>
-                          <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) =>
-                                  handleImageUpload(e.target.files?.[0] ?? null)
-                              }
-                          />
-                        </label>
-                        {imageUploadName && (
-                            <p className="small">
-                              Using uploaded image: {imageUploadName}
-                            </p>
-                        )}
-                        <input
-                            value={imageUrl}
-                            onChange={(e) => setImageUrl(e.target.value)}
-                            placeholder="Image URL from your test set (or upload a file above)"
-                            required
-                        />
-                        {imageUrl && (
-                            <Image
-                                src={imageUrl}
-                                alt="Test input preview"
-                                width={280}
-                                height={180}
-                                unoptimized
-                                style={{
-                                  borderRadius: 8,
-                                  objectFit: "cover",
-                                  width: "280px",
-                                  height: "180px",
-                                }}
-                            />
-                        )}
-                        <button
-                            type="submit"
-                            disabled={!selectedFlavorId || steps.length === 0}
-                        >
-                          Generate captions
-                        </button>
-                      </form>
-                      {apiResult && <pre>{apiResult}</pre>}
-                    </section>
-                )}
-
-                {activePanel === "runs" && (
-                    <section className="card" id="runs">
-                      <h2>📜 Recent generated captions</h2>
-                      <div className="grid">
-                        {runs.map((run) => (
-                            <div key={run.id} className="card">
-                              <p className="small">
-                                {new Date(run.created_datetime_utc).toLocaleString()}
-                              </p>
-                              <p>
-                                <strong>Image:</strong> {run.image_url}
-                              </p>
-                              <pre>{JSON.stringify(run.response_json, null, 2)}</pre>
-                            </div>
-                        ))}
-                      </div>
-                    </section>
-                )}
-              </div>
-
-              <aside className="card steps-key">
-                <h3>📂 Sections</h3>
-                <div className="tabs-list">
-                  <button
-                      type="button"
-                      onClick={() => setActivePanel("theme")}
-                      title="Theme settings"
-                  >
-                    🎨 Theme
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => setActivePanel("create-flavor")}
-                      title="Create humor flavor"
-                  >
-                    ✨ Create
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => setActivePanel("flavors")}
-                      title="View/update/delete flavors"
-                  >
-                    🧠 Flavors
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => setActivePanel("steps")}
-                      title="Manage flavor steps"
-                  >
-                    🪜 Steps
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => setActivePanel("test")}
-                      title="Generate captions"
-                  >
-                    🧪 Test
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => setActivePanel("runs")}
-                      title="Generated caption history"
-                  >
-                    📜 Runs
-                  </button>
-                </div>
-                <h3>🗺️ Steps key</h3>
-                <ol>
-                  <li>Take in an image and output a description in text.</li>
-                  <li>
-                    Take output from step 1 and output something funny about it.
-                  </li>
-                  <li>
-                    Take output from step 2 and output five short, funny captions.
-                  </li>
-                </ol>
-                <p className="small">
-                  Tip: Create flavor → add steps → click 🧪 Make captions.
-                </p>
-              </aside>
-            </div>
-        )}
-      </main>
   );
 }
