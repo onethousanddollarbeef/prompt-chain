@@ -6,7 +6,7 @@ export type Profile = {
 
 export type HumorFlavor = {
   id: string;
-  name: string;
+  slug: string;
   description: string | null;
   created_by_user_id: string;
   modified_by_user_id: string;

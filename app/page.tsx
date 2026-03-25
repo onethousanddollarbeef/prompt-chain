@@ -62,21 +62,34 @@ export default function Page() {
   const canGenerate = Boolean(selectedFlavorId) && hasImageInput && !isGenerating;
 
   function extractCaptions(payload: unknown): string[] {
-    if (!Array.isArray(payload)) return [];
-    return payload
-      .map((item) => {
-        if (!item || typeof item !== "object") return "";
-        const obj = item as Record<string, unknown>;
-        const value = obj.content ?? obj.caption ?? obj.text;
-        return typeof value === "string" ? value : "";
-      })
-      .filter((text) => text.trim().length > 0);
+    const fromArray = (arr: unknown[]) =>
+      arr
+        .flatMap((item) => {
+          if (typeof item === "string") return [item];
+          if (!item || typeof item !== "object") return [];
+          const obj = item as Record<string, unknown>;
+          const direct = obj.content ?? obj.caption ?? obj.text;
+          if (typeof direct === "string") return [direct];
+          return extractCaptions(item);
+        })
+        .filter((text) => text.trim().length > 0);
+
+    if (Array.isArray(payload)) return fromArray(payload);
+
+    if (payload && typeof payload === "object") {
+      const obj = payload as Record<string, unknown>;
+      if (Array.isArray(obj.captions)) return fromArray(obj.captions);
+      if (Array.isArray(obj.data)) return fromArray(obj.data);
+      if (Array.isArray(obj.results)) return fromArray(obj.results);
+    }
+
+    return [];
   }
 
   function normalizeFlavorRow(row: Record<string, unknown>): HumorFlavor {
     return {
       id: String(row.id ?? ""),
-      name: String(row.name ?? row.title ?? "(unnamed flavor)"),
+      slug: String(row.slug ?? "(missing-slug)"),
       description: typeof row.description === "string" ? row.description : null,
       created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
       modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? ""),
@@ -289,7 +302,7 @@ export default function Page() {
     setCreateFlavorNotice("");
 
     const { error } = await supabase.from("humor_flavors").insert({
-      name: newFlavorName.trim(),
+      slug: newFlavorName.trim(),
       description: newFlavorDescription.trim() || null,
       created_by_user_id: profile.id,
       modified_by_user_id: profile.id,
@@ -313,13 +326,13 @@ export default function Page() {
   async function updateFlavor(flavor: HumorFlavor) {
     if (!supabase || !profile) return;
 
-    const newName = prompt("New flavor name", flavor.name);
-    if (!newName) return;
+    const newSlug = prompt("New flavor slug", flavor.slug);
+    if (!newSlug) return;
 
     const { error } = await supabase
       .from("humor_flavors")
       .update({
-        name: newName,
+        slug: newSlug,
         modified_by_user_id: profile.id,
       })
       .eq("id", flavor.id);
@@ -334,7 +347,7 @@ export default function Page() {
 
   async function deleteFlavor(flavor: HumorFlavor) {
     if (!supabase) return;
-    if (!confirm(`Delete flavor "${flavor.name}"?`)) return;
+    if (!confirm(`Delete flavor "${flavor.slug}"?`)) return;
 
     const { error } = await supabase
       .from("humor_flavors")
@@ -720,7 +733,7 @@ export default function Page() {
                   <input
                     value={newFlavorName}
                     onChange={(e) => setNewFlavorName(e.target.value)}
-                    placeholder="Flavor name"
+                    placeholder="Flavor slug"
                     required
                   />
                   <textarea
@@ -754,7 +767,7 @@ export default function Page() {
                         <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
                           {selectedFlavorId === flavor.id ? "Selected" : "Select"}
                         </button>
-                        <strong>{flavor.name}</strong>
+                        <strong>{flavor.slug}</strong>
                       </div>
                       <p>{flavor.description}</p>
                       <div className="row">
@@ -779,7 +792,7 @@ export default function Page() {
 
             {activePanel === "steps" && (
               <section className="card" id="steps">
-                <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ""}</h2>
+                <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.slug}` : ""}</h2>
                 {selectedFlavor ? (
                   <>
                     <form className="grid" onSubmit={createStep}>
