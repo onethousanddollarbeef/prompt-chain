@@ -1,17 +1,20 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
 
 type ThemeMode = 'light' | 'dark' | 'system';
+type AdminPanel = 'theme' | 'create-flavor' | 'flavors' | 'steps' | 'test' | 'runs';
 
 export default function Page() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<ThemeMode>('system');
+  const [activePanel, setActivePanel] = useState<AdminPanel>('create-flavor');
 
   const [flavors, setFlavors] = useState<HumorFlavor[]>([]);
   const [selectedFlavorId, setSelectedFlavorId] = useState<string>('');
@@ -20,11 +23,13 @@ export default function Page() {
 
   const [newFlavorName, setNewFlavorName] = useState('');
   const [newFlavorDescription, setNewFlavorDescription] = useState('');
+  const [confirmCreateFlavor, setConfirmCreateFlavor] = useState(false);
 
   const [stepTitle, setStepTitle] = useState('');
   const [stepInstruction, setStepInstruction] = useState('');
 
   const [imageUrl, setImageUrl] = useState('');
+  const [imageUploadName, setImageUploadName] = useState('');
   const [apiResult, setApiResult] = useState<string>('');
   const [status, setStatus] = useState<string>('');
 
@@ -223,6 +228,7 @@ export default function Page() {
 
     setNewFlavorName('');
     setNewFlavorDescription('');
+    setConfirmCreateFlavor(false);
     await loadFlavors();
     setStatus('Flavor created.');
   }
@@ -379,6 +385,17 @@ export default function Page() {
     setStatus('Captions generated and saved.');
   }
 
+  function handleImageUpload(file: File | null) {
+    if (!file) return;
+    setImageUploadName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setImageUrl(result);
+    };
+    reader.readAsDataURL(file);
+  }
+
   if (loading) {
     return <main className="container">Loading...</main>;
   }
@@ -472,9 +489,20 @@ export default function Page() {
                 onChange={(e) => setNewFlavorDescription(e.target.value)}
                 placeholder="Description"
               />
-              <button type="submit">Create flavor</button>
+              <label className="row">
+                <input
+                  type="checkbox"
+                  checked={confirmCreateFlavor}
+                  onChange={(e) => setConfirmCreateFlavor(e.target.checked)}
+                />
+                <span>Confirm I want to create this flavor</span>
+              </label>
+              <button type="submit" disabled={!confirmCreateFlavor}>
+                ✅ Confirm create flavor
+              </button>
             </form>
           </section>
+          )}
 
           <section className="card" id="flavors">
             <h2>🧠 Humor flavors</h2>
@@ -497,11 +525,22 @@ export default function Page() {
                   <div className="row">
                     <button onClick={() => updateFlavor(flavor)}>Rename</button>
                     <button onClick={() => deleteFlavor(flavor)}>Delete</button>
+                    <button
+                      onClick={async () => {
+                        setSelectedFlavorId(flavor.id);
+                        await loadSteps(flavor.id);
+                        await loadRuns(flavor.id);
+                        setActivePanel('test');
+                      }}
+                    >
+                      🧪 Make captions
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
           </section>
+          )}
 
           <section className="card" id="steps">
             <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.name}` : ''}</h2>
@@ -549,18 +588,34 @@ export default function Page() {
           <section className="card" id="test">
             <h2>🧪 Test flavor via API</h2>
             <form className="grid" onSubmit={testFlavor}>
+              <label className="row">
+                <span>Upload image:</span>
+                <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e.target.files?.[0] ?? null)} />
+              </label>
+              {imageUploadName && <p className="small">Using uploaded image: {imageUploadName}</p>}
               <input
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="Image URL from your test set"
+                placeholder="Image URL from your test set (or upload a file above)"
                 required
               />
+              {imageUrl && (
+                <Image
+                  src={imageUrl}
+                  alt="Test input preview"
+                  width={280}
+                  height={180}
+                  unoptimized
+                  style={{ borderRadius: 8, objectFit: 'cover', width: '280px', height: '180px' }}
+                />
+              )}
               <button type="submit" disabled={!selectedFlavorId || steps.length === 0}>
                 Generate captions
               </button>
             </form>
             {apiResult && <pre>{apiResult}</pre>}
           </section>
+          )}
 
           <section className="card" id="runs">
             <h2>📜 Recent generated captions</h2>
@@ -576,7 +631,40 @@ export default function Page() {
               ))}
             </div>
           </section>
-        </>
+          )}
+          </div>
+
+          <aside className="card steps-key">
+            <h3>📂 Sections</h3>
+            <div className="tabs-list">
+              <button onClick={() => setActivePanel('theme')} title="Theme settings">
+                🎨 Theme
+              </button>
+              <button onClick={() => setActivePanel('create-flavor')} title="Create humor flavor">
+                ✨ Create
+              </button>
+              <button onClick={() => setActivePanel('flavors')} title="View/update/delete flavors">
+                🧠 Flavors
+              </button>
+              <button onClick={() => setActivePanel('steps')} title="Manage flavor steps">
+                🪜 Steps
+              </button>
+              <button onClick={() => setActivePanel('test')} title="Generate captions">
+                🧪 Test
+              </button>
+              <button onClick={() => setActivePanel('runs')} title="Generated caption history">
+                📜 Runs
+              </button>
+            </div>
+            <h3>🗺️ Steps key</h3>
+            <ol>
+              <li>Take in an image and output a description in text.</li>
+              <li>Take output from step 1 and output something funny about it.</li>
+              <li>Take output from step 2 and output five short, funny captions.</li>
+            </ol>
+            <p className="small">Tip: Create flavor → add steps → click 🧪 Make captions.</p>
+          </aside>
+        </div>
       )}
     </main>
   );
