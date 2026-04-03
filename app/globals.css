@@ -83,3 +83,29 @@ button {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+.split-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.split-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.scroll-area {
+  max-height: 34vh;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+@media (max-width: 960px) {
+  .split-layout {
+    grid-template-columns: 1fr;
+  }
+}

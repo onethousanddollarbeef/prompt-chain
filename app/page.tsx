@@ -43,8 +43,8 @@ export default function Page() {
       const { data, error } = await supabase
         .from('humor_flavor_steps')
         .select('*')
-        .eq('flavor_id', flavorId)
-        .order('position', { ascending: true });
+        .eq('humor_flavor_id', flavorId)
+        .order('order_by', { ascending: true });
       if (error) {
         setStatus(error.message);
         return;
@@ -317,12 +317,21 @@ export default function Page() {
     e.preventDefault();
     if (!supabase || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
 
-    const nextPos = steps.length ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
+    const template = steps[steps.length - 1];
+    const nextOrder = steps.length ? Math.max(...steps.map((s) => s.order_by)) + 1 : 1;
     const { error } = await supabase.from('humor_flavor_steps').insert({
-      flavor_id: selectedFlavorId,
-      position: nextPos,
-      title: stepTitle.trim(),
-      instruction: stepInstruction.trim()
+      humor_flavor_id: Number(selectedFlavorId),
+      order_by: nextOrder,
+      description: stepTitle.trim(),
+      llm_user_prompt: stepInstruction.trim(),
+      llm_system_prompt: template?.llm_system_prompt ?? 'You are a humor assistant.',
+      llm_temperature: template?.llm_temperature ?? 0.7,
+      llm_input_type_id: template?.llm_input_type_id ?? 1,
+      llm_output_type_id: template?.llm_output_type_id ?? 1,
+      llm_model_id: template?.llm_model_id ?? 14,
+      humor_flavor_step_type_id: template?.humor_flavor_step_type_id ?? 1,
+      created_by_user_id: profile?.id ?? null,
+      modified_by_user_id: profile?.id ?? null
     });
     if (error) {
       setStatus(error.message);
@@ -337,34 +346,39 @@ export default function Page() {
   async function updateStep(step: HumorFlavorStep) {
     if (!supabase) return;
 
-    const title = prompt('Step title', step.title);
+    const title = prompt('Step title', step.description ?? '');
     if (!title) return;
-    const instruction = prompt('Step instruction', step.instruction);
+    const instruction = prompt('Step instruction', step.llm_user_prompt ?? '');
     if (!instruction) return;
 
     const { error } = await supabase
       .from('humor_flavor_steps')
-      .update({ title, instruction })
+      .update({
+        description: title,
+        llm_user_prompt: instruction,
+        modified_by_user_id: profile?.id ?? null,
+        modified_datetime_utc: new Date().toISOString()
+      })
       .eq('id', step.id);
 
     if (error) {
       setStatus(error.message);
       return;
     }
-    await loadSteps(step.flavor_id);
+    await loadSteps(String(step.humor_flavor_id));
   }
 
   async function deleteStep(step: HumorFlavorStep) {
     if (!supabase) return;
 
-    if (!confirm(`Delete step "${step.title}"?`)) return;
+    if (!confirm(`Delete step "${step.description ?? `Step ${step.order_by}`}"?`)) return;
 
     const { error } = await supabase.from('humor_flavor_steps').delete().eq('id', step.id);
     if (error) {
       setStatus(error.message);
       return;
     }
-    await loadSteps(step.flavor_id);
+    await loadSteps(String(step.humor_flavor_id));
   }
 
   async function moveStep(step: HumorFlavorStep, direction: -1 | 1) {
@@ -376,14 +390,14 @@ export default function Page() {
 
     const target = steps[targetIndex];
     const updates = [
-      { id: step.id, position: target.position },
-      { id: target.id, position: step.position }
+      { id: step.id, order_by: target.order_by },
+      { id: target.id, order_by: step.order_by }
     ];
 
     for (const update of updates) {
       const { error } = await supabase
         .from('humor_flavor_steps')
-        .update({ position: update.position })
+        .update({ order_by: update.order_by })
         .eq('id', update.id);
       if (error) {
         setStatus(error.message);
@@ -391,7 +405,7 @@ export default function Page() {
       }
     }
 
-    await loadSteps(step.flavor_id);
+    await loadSteps(String(step.humor_flavor_id));
   }
 
   async function testFlavor(e: FormEvent) {
@@ -403,7 +417,11 @@ export default function Page() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         flavor: selectedFlavor,
-        steps,
+        steps: steps.map((step) => ({
+          position: step.order_by,
+          title: step.description ?? `Step ${step.order_by}`,
+          instruction: step.llm_user_prompt ?? ''
+        })),
         imageUrl: imageUrl.trim()
       })
     });
@@ -490,8 +508,9 @@ export default function Page() {
       )}
 
       {isAdmin() && (
-        <>
-          <section className="card">
+        <div className="split-layout">
+          <div className="split-column">
+            <section className="card">
             <h2>Theme</h2>
             <div className="row">
               <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
@@ -504,9 +523,9 @@ export default function Page() {
                 System
               </button>
             </div>
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Create humor flavor</h2>
             <p className="small">Saved to <code>humor_flavors</code> table.</p>
             <form className="grid" onSubmit={createFlavor}>
@@ -523,11 +542,11 @@ export default function Page() {
               />
               <button type="submit">Create flavor</button>
             </form>
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Humor flavors</h2>
-            <div className="grid">
+            <div className="grid scroll-area">
               {flavors.map((flavor) => (
                 <div key={flavor.id} className="card">
                   <div className="row">
@@ -550,9 +569,11 @@ export default function Page() {
                 </div>
               ))}
             </div>
-          </section>
+            </section>
+          </div>
 
-          <section className="card">
+          <div className="split-column">
+            <section className="card">
             <h2>Steps {selectedFlavor ? `for ${selectedFlavor.slug}` : ''}</h2>
             {selectedFlavor ? (
               <>
@@ -571,15 +592,15 @@ export default function Page() {
                   />
                   <button type="submit">Add step</button>
                 </form>
-                <div className="grid">
+                <div className="grid scroll-area">
                   {steps.map((step) => (
                     <div key={step.id} className="card">
                       <div className="row">
                         <strong>
-                          #{step.position} - {step.title}
+                          #{step.order_by} - {step.description ?? `Step ${step.order_by}`}
                         </strong>
                       </div>
-                      <p>{step.instruction}</p>
+                      <p>{step.llm_user_prompt}</p>
                       <div className="row">
                         <button onClick={() => moveStep(step, -1)}>Move up</button>
                         <button onClick={() => moveStep(step, 1)}>Move down</button>
@@ -593,9 +614,9 @@ export default function Page() {
             ) : (
               <p>Select a flavor first.</p>
             )}
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Test flavor via API</h2>
             <p className="small">This only generates captions and saves runs. It does not create a flavor row.</p>
             <form className="grid" onSubmit={testFlavor}>
@@ -610,11 +631,11 @@ export default function Page() {
               </button>
             </form>
             {apiResult && <pre>{apiResult}</pre>}
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Recent generated captions</h2>
-            <div className="grid">
+            <div className="grid scroll-area">
               {runs.map((run) => (
                 <div key={run.id} className="card">
                   <p className="small">{new Date(run.created_at).toLocaleString()}</p>
@@ -625,8 +646,9 @@ export default function Page() {
                 </div>
               ))}
             </div>
-          </section>
-        </>
+            </section>
+          </div>
+        </div>
       )}
     </main>
   );
