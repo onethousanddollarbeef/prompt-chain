@@ -1,10 +1,12 @@
 -- Prompt chain tables for humor flavors
 create table if not exists public.humor_flavors (
-  id uuid primary key default gen_random_uuid(),
-  slug text not null unique,
+  id bigserial primary key,
+  created_datetime_utc timestamptz not null default now(),
   description text,
-  created_by uuid not null references auth.users(id),
-  created_at timestamptz not null default now()
+  slug varchar not null unique,
+  created_by_user_id uuid not null references auth.users(id),
+  modified_by_user_id uuid references auth.users(id),
+  modified_datetime_utc timestamptz not null default now()
 );
 
 create table if not exists public.humor_flavor_steps (

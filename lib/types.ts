@@ -8,8 +8,10 @@ export type HumorFlavor = {
   id: string;
   slug: string;
   description: string | null;
-  created_by: string;
-  created_at: string;
+  created_by_user_id: string;
+  created_datetime_utc: string;
+  modified_by_user_id: string | null;
+  modified_datetime_utc: string | null;
 };
 
 export type HumorFlavorStep = {

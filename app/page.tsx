@@ -79,7 +79,7 @@ export default function Page() {
     const { data, error } = await supabase
       .from('humor_flavors')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_datetime_utc', { ascending: false });
     if (error) {
       setStatus(error.message);
       return;
@@ -261,7 +261,8 @@ export default function Page() {
     const { error } = await supabase.from('humor_flavors').insert({
       slug: newFlavorSlug.trim(),
       description: newFlavorDescription.trim() || null,
-      created_by: profile.id
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id
     });
 
     if (error) {
@@ -283,7 +284,11 @@ export default function Page() {
 
     const { error } = await supabase
       .from('humor_flavors')
-      .update({ slug: newSlug })
+      .update({
+        slug: newSlug,
+        modified_by_user_id: profile?.id ?? null,
+        modified_datetime_utc: new Date().toISOString()
+      })
       .eq('id', flavor.id);
 
     if (error) {
@@ -458,7 +463,6 @@ export default function Page() {
   return (
     <main className="container">
       <h1>Humor Flavor Prompt Chain</h1>
-      <p><strong>THIS IS THE NEW DEPLOYMENT (PR6)</strong></p>
       <p className="small">{status}</p>
       <p className="small">Supabase host: {envInfo.supabaseUrlHost || '(not set)'}</p>
       <div className="row card">
@@ -504,6 +508,7 @@ export default function Page() {
 
           <section className="card">
             <h2>Create humor flavor</h2>
+            <p className="small">Saved to <code>humor_flavors</code> table.</p>
             <form className="grid" onSubmit={createFlavor}>
               <input
                 value={newFlavorSlug}
@@ -592,6 +597,7 @@ export default function Page() {
 
           <section className="card">
             <h2>Test flavor via API</h2>
+            <p className="small">This only generates captions and saves runs. It does not create a flavor row.</p>
             <form className="grid" onSubmit={testFlavor}>
               <input
                 value={imageUrl}
