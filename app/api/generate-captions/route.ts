@@ -49,7 +49,13 @@ export async function POST(req: NextRequest) {
       })
     });
 
-    const responseBody = (await response.json()) as unknown;
+    const responseText = await response.text();
+    let responseBody: unknown = responseText;
+    try {
+      responseBody = responseText ? (JSON.parse(responseText) as unknown) : null;
+    } catch {
+      // keep raw text
+    }
 
     if (!response.ok) {
       return NextResponse.json(

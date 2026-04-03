@@ -15,12 +15,21 @@ export type HumorFlavor = {
 };
 
 export type HumorFlavorStep = {
-  id: string;
-  flavor_id: string;
-  position: number;
-  title: string;
-  instruction: string;
-  created_at: string;
+  id: number;
+  humor_flavor_id: number;
+  order_by: number;
+  description: string | null;
+  llm_user_prompt: string | null;
+  llm_system_prompt: string | null;
+  llm_temperature: number | null;
+  llm_input_type_id: number | null;
+  llm_output_type_id: number | null;
+  llm_model_id: number | null;
+  humor_flavor_step_type_id: number | null;
+  created_by_user_id: string | null;
+  modified_by_user_id: string | null;
+  created_datetime_utc: string;
+  modified_datetime_utc: string | null;
 };
 
 export type CaptionRun = {
