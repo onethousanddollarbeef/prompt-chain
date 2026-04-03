@@ -490,8 +490,9 @@ export default function Page() {
       )}
 
       {isAdmin() && (
-        <>
-          <section className="card">
+        <div className="split-layout">
+          <div className="split-column">
+            <section className="card">
             <h2>Theme</h2>
             <div className="row">
               <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
@@ -504,9 +505,9 @@ export default function Page() {
                 System
               </button>
             </div>
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Create humor flavor</h2>
             <p className="small">Saved to <code>humor_flavors</code> table.</p>
             <form className="grid" onSubmit={createFlavor}>
@@ -523,11 +524,11 @@ export default function Page() {
               />
               <button type="submit">Create flavor</button>
             </form>
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Humor flavors</h2>
-            <div className="grid">
+            <div className="grid scroll-area">
               {flavors.map((flavor) => (
                 <div key={flavor.id} className="card">
                   <div className="row">
@@ -550,9 +551,11 @@ export default function Page() {
                 </div>
               ))}
             </div>
-          </section>
+            </section>
+          </div>
 
-          <section className="card">
+          <div className="split-column">
+            <section className="card">
             <h2>Steps {selectedFlavor ? `for ${selectedFlavor.slug}` : ''}</h2>
             {selectedFlavor ? (
               <>
@@ -571,7 +574,7 @@ export default function Page() {
                   />
                   <button type="submit">Add step</button>
                 </form>
-                <div className="grid">
+                <div className="grid scroll-area">
                   {steps.map((step) => (
                     <div key={step.id} className="card">
                       <div className="row">
@@ -593,9 +596,9 @@ export default function Page() {
             ) : (
               <p>Select a flavor first.</p>
             )}
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Test flavor via API</h2>
             <p className="small">This only generates captions and saves runs. It does not create a flavor row.</p>
             <form className="grid" onSubmit={testFlavor}>
@@ -610,11 +613,11 @@ export default function Page() {
               </button>
             </form>
             {apiResult && <pre>{apiResult}</pre>}
-          </section>
+            </section>
 
-          <section className="card">
+            <section className="card">
             <h2>Recent generated captions</h2>
-            <div className="grid">
+            <div className="grid scroll-area">
               {runs.map((run) => (
                 <div key={run.id} className="card">
                   <p className="small">{new Date(run.created_at).toLocaleString()}</p>
@@ -625,8 +628,9 @@ export default function Page() {
                 </div>
               ))}
             </div>
-          </section>
-        </>
+            </section>
+          </div>
+        </div>
       )}
     </main>
   );
