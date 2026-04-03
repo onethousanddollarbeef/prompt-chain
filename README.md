@@ -85,3 +85,8 @@ npm run validate:json
 ```
 
 This repo now includes a GitHub Action that checks JSON syntax on PRs and pushes to prevent this from happening again.
+
+
+## Security patch note
+
+This project pins Next.js to a patched release (`15.2.6`) to address the React2Shell-related vulnerability range that affected `15.2.x` releases before `15.2.6`.
