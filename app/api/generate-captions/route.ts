@@ -32,28 +32,61 @@ export async function POST(req: NextRequest) {
       instruction: step.instruction
     }));
 
-    const response = await fetch(`${apiUrl}/captions/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-      },
-      body: JSON.stringify({
-        image_url: body.imageUrl,
-        humor_flavor: {
-          id: body.flavor?.id,
-          name: body.flavor?.name ?? body.flavor?.slug ?? "Custom Flavor",
-          description: body.flavor?.description ?? null,
-          prompt_chain: promptChain
-        }
-      })
-    });
+    const configuredPath = process.env.ALMOSTCRACKD_CAPTIONS_PATH;
+    const candidatePaths = Array.from(
+      new Set([configuredPath, '/captions/generate', '/captions'].filter(Boolean))
+    );
 
-    const responseBody = (await response.json()) as unknown;
+    let response: Response | null = null;
+    let responseBody: unknown = null;
+    const attemptedPaths: string[] = [];
+
+    for (const candidatePath of candidatePaths) {
+      attemptedPaths.push(candidatePath as string);
+      const nextResponse = await fetch(`${apiUrl}${candidatePath}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          image_url: body.imageUrl,
+          humor_flavor: {
+            id: body.flavor?.id,
+            name: body.flavor?.name ?? body.flavor?.slug ?? 'Custom Flavor',
+            description: body.flavor?.description ?? null,
+            prompt_chain: promptChain
+          }
+        })
+      });
+
+      const responseText = await nextResponse.text();
+      let nextBody: unknown = responseText;
+      try {
+        nextBody = responseText ? (JSON.parse(responseText) as unknown) : null;
+      } catch {
+        // keep raw text
+      }
+
+      response = nextResponse;
+      responseBody = nextBody;
+
+      // if route exists or at least is not "method not allowed", stop trying fallbacks
+      if (nextResponse.status !== 405) {
+        break;
+      }
+    }
+
+    if (!response) {
+      return NextResponse.json(
+        { error: 'No response from upstream API', attempted_paths: attemptedPaths },
+        { status: 502 }
+      );
+    }
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: 'API request failed', details: responseBody },
+        { error: 'API request failed', details: responseBody, attempted_paths: attemptedPaths },
         { status: response.status }
       );
     }
