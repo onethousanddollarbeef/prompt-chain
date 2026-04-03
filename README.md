@@ -21,6 +21,7 @@ Copy `.env.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `ALMOSTCRACKD_API_URL` (default: `https://api.almostcrackd.ai`)
 - `ALMOSTCRACKD_API_KEY` (optional unless your API requires auth)
+- `ALMOSTCRACKD_CAPTIONS_PATH` (optional path override, default tries `/captions/generate` then `/captions`)
 
 ## Setup
 
