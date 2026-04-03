@@ -72,7 +72,10 @@ export default function Page() {
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) {
-        setStatus(error.message);
+        if (!error.message.toLowerCase().includes('humor_flavor_runs')) {
+          setStatus(error.message);
+        }
+        setRuns([]);
         return;
       }
       setRuns(data ?? []);
@@ -479,11 +482,20 @@ export default function Page() {
 
     setApiResult(JSON.stringify(payload.data, null, 2));
 
-    await supabase.from('humor_flavor_runs').insert({
+    const { error: runInsertError } = await supabase.from('humor_flavor_runs').insert({
       flavor_id: selectedFlavor.id,
       image_url: normalizedImageInput,
       response_json: payload.data
     });
+    if (runInsertError) {
+      if (runInsertError.message.toLowerCase().includes('humor_flavor_runs')) {
+        setStatus('Captions generated. Run history table is not configured, so result was not saved.');
+        return;
+      }
+      setStatus(runInsertError.message);
+      return;
+    }
+
     await loadRuns(selectedFlavor.id);
     setStatus('Captions generated and saved.');
   }
@@ -721,6 +733,7 @@ export default function Page() {
 
             <section className="card">
             <h2>Recent generated captions</h2>
+            <p className="small">Optional: requires <code>humor_flavor_runs</code> table.</p>
             <div className="grid scroll-area">
               {runs.map((run) => (
                 <div key={run.id} className="card">
