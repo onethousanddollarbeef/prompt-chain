@@ -6,12 +6,10 @@ export type Profile = {
 
 export type HumorFlavor = {
   id: string;
-  name: string;
+  slug: string;
   description: string | null;
-  created_by_user_id: string;
-  modified_by_user_id: string;
-  created_datetime_utc: string;
-  modified_datetime_utc: string;
+  created_by: string;
+  created_at: string;
 };
 
 export type HumorFlavorStep = {
@@ -20,10 +18,7 @@ export type HumorFlavorStep = {
   position: number;
   title: string;
   instruction: string;
-  created_by_user_id: string;
-  modified_by_user_id: string;
-  created_datetime_utc: string;
-  modified_datetime_utc: string;
+  created_at: string;
 };
 
 export type CaptionRun = {
@@ -31,8 +26,5 @@ export type CaptionRun = {
   flavor_id: string;
   image_url: string;
   response_json: unknown;
-  created_by_user_id: string;
-  modified_by_user_id: string;
-  created_datetime_utc: string;
-  modified_datetime_utc: string;
+  created_at: string;
 };

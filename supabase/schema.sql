@@ -1,7 +1,7 @@
 -- Prompt chain tables for humor flavors
 create table if not exists public.humor_flavors (
   id uuid primary key default gen_random_uuid(),
-  name text not null,
+  slug text not null unique,
   description text,
   created_by uuid not null references auth.users(id),
   created_at timestamptz not null default now()
