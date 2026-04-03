@@ -508,6 +508,7 @@ export default function Page() {
 
           <section className="card">
             <h2>Create humor flavor</h2>
+            <p className="small">Saved to <code>humor_flavors</code> table.</p>
             <form className="grid" onSubmit={createFlavor}>
               <input
                 value={newFlavorSlug}
@@ -596,6 +597,7 @@ export default function Page() {
 
           <section className="card">
             <h2>Test flavor via API</h2>
+            <p className="small">This only generates captions and saves runs. It does not create a flavor row.</p>
             <form className="grid" onSubmit={testFlavor}>
               <input
                 value={imageUrl}
