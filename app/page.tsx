@@ -690,6 +690,7 @@ export default function Page() {
             <section className="card">
             <h2>Test flavor via API</h2>
             <p className="small">Captions are generated and stored by the REST API (not in Supabase).</p>
+            <p className="small">Note: API Step 1 is upload-prep (presigned URL), not image analysis.</p>
             <div className="row">
               <button
                 type="button"

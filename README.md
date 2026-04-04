@@ -21,7 +21,7 @@ Copy `.env.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `ALMOSTCRACKD_API_KEY` (optional unless your API requires auth)
 
-The server route is hardcoded to `https://www.almostcrackd.ai`, tries both `/pipeline/...` and `/api/pipeline/...` paths automatically, and can fall back to legacy captions endpoints if pipeline routes are unavailable.
+The server route is hardcoded to `https://api.almostcrackd.ai`, tries both `/pipeline/...` and `/api/pipeline/...` paths automatically, and can fall back to legacy captions endpoints if pipeline routes are unavailable.
 
 ## Setup
 

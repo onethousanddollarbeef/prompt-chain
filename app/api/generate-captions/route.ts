@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       imageUrl: string;
     };
 
-    const apiUrl = 'https://www.almostcrackd.ai';
+    const apiUrl = 'https://api.almostcrackd.ai';
     const apiKey = process.env.ALMOSTCRACKD_API_KEY;
     const incomingAuth = req.headers.get('authorization');
 
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json(
           {
-            error: 'Step 1 failed: generate-presigned-url',
+            error: 'Step 1 failed: image upload preparation (generate-presigned-url)',
             details: presignedResponse.parsedBody,
             attempted_urls: [...presignedResponse.attemptedUrls, ...legacyCaptions.attemptedUrls]
           },
