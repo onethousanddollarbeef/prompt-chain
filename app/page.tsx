@@ -486,6 +486,7 @@ export default function Page() {
       error?: string;
       details?: unknown;
       attempted_urls?: string[];
+      mode?: string;
       data?: unknown;
     };
     if (!res.ok) {
@@ -509,7 +510,13 @@ export default function Page() {
     }
 
     setApiResult(JSON.stringify(payload.data, null, 2));
-    setStatus('Captions generated via REST API.');
+    if (payload.mode === 'legacy-captions-fallback') {
+      setStatus(
+        'Captions generated via legacy fallback endpoint. These may ignore some humor-flavor steps, so DnD theme can be weaker.'
+      );
+      return;
+    }
+    setStatus('Captions generated via pipeline endpoint (steps included).');
   }
 
   async function onImageFileSelected(file: File | null) {

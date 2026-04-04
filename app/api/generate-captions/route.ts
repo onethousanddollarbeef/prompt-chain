@@ -250,7 +250,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       data: captionsResponse.parsedBody,
       image_url: upstreamImageUrl,
-      image_id: registerPayload.imageId
+      image_id: registerPayload.imageId,
+      mode: 'pipeline'
     });
   } catch (error) {
     return NextResponse.json(

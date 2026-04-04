@@ -22,6 +22,7 @@ Copy `.env.example` to `.env.local` and fill in:
 - `ALMOSTCRACKD_API_KEY` (optional unless your API requires auth)
 
 The server route is hardcoded to `https://api.almostcrackd.ai`, tries both `/pipeline/...` and `/api/pipeline/...` paths automatically, and can fall back to legacy captions endpoints if pipeline routes are unavailable.
+When legacy fallback is used, captions may be less faithful to custom humor-flavor steps than pipeline mode.
 
 ## Setup
 
