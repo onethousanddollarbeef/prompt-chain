@@ -55,6 +55,59 @@ export async function POST(req: NextRequest) {
       }
     };
 
+    const normalizeDetails = (details: unknown) => {
+      if (typeof details !== 'string') return details;
+      if (details.includes('<!DOCTYPE html') || details.includes('<html')) {
+        return 'Upstream returned HTML (likely wrong endpoint path).';
+      }
+      return details;
+    };
+
+    const candidatePaths = (path: string) => [path, `/api${path}`];
+    const postToPipeline = async (path: string, payload: unknown) => {
+      const attemptedUrls: string[] = [];
+
+      for (const candidatePath of candidatePaths(path)) {
+        const targetUrl = `${apiUrl}${candidatePath}`;
+        attemptedUrls.push(targetUrl);
+
+        const res = await fetch(targetUrl, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify(payload)
+        });
+        const parsedBody = await parseJsonOrText(res);
+
+        if (res.ok) {
+          return { ok: true as const, parsedBody, attemptedUrls };
+        }
+
+        const responseLooksLikeMissingRoute =
+          res.status === 404 ||
+          (typeof parsedBody === 'string' && parsedBody.includes('<!DOCTYPE html')) ||
+          (typeof parsedBody === 'object' &&
+            parsedBody !== null &&
+            'message' in parsedBody &&
+            String(parsedBody.message).toLowerCase().includes('not found'));
+
+        if (!responseLooksLikeMissingRoute) {
+          return {
+            ok: false as const,
+            status: res.status,
+            parsedBody: normalizeDetails(parsedBody),
+            attemptedUrls
+          };
+        }
+      }
+
+      return {
+        ok: false as const,
+        status: 404,
+        parsedBody: 'Could not find a working pipeline endpoint.',
+        attemptedUrls
+      };
+    };
+
     let upstreamImageUrl = body.imageUrl;
 
     if (body.imageUrl?.startsWith('data:')) {
@@ -66,21 +119,19 @@ export async function POST(req: NextRequest) {
       const contentType = matches[1] || 'image/png';
       const imageBytes = Buffer.from(matches[2], 'base64');
 
-      const presignedRes = await fetch(`${apiUrl}/pipeline/generate-presigned-url`, {
-        method: 'POST',
-        headers: jsonHeaders,
-        body: JSON.stringify({ contentType })
-      });
-
-      const presignedBody = await parseJsonOrText(presignedRes);
-      if (!presignedRes.ok) {
+      const presignedResponse = await postToPipeline('/pipeline/generate-presigned-url', { contentType });
+      if (!presignedResponse.ok) {
         return NextResponse.json(
-          { error: 'Step 1 failed: generate-presigned-url', details: presignedBody },
-          { status: presignedRes.status }
+          {
+            error: 'Step 1 failed: generate-presigned-url',
+            details: presignedResponse.parsedBody,
+            attempted_urls: presignedResponse.attemptedUrls
+          },
+          { status: presignedResponse.status }
         );
       }
 
-      const presignedPayload = presignedBody as { presignedUrl: string; cdnUrl: string };
+      const presignedPayload = presignedResponse.parsedBody as { presignedUrl: string; cdnUrl: string };
       const uploadRes = await fetch(presignedPayload.presignedUrl, {
         method: 'PUT',
         headers: { 'Content-Type': contentType },
@@ -98,51 +149,52 @@ export async function POST(req: NextRequest) {
       upstreamImageUrl = presignedPayload.cdnUrl;
     }
 
-    const registerRes = await fetch(`${apiUrl}/pipeline/upload-image-from-url`, {
-      method: 'POST',
-      headers: jsonHeaders,
-      body: JSON.stringify({ imageUrl: upstreamImageUrl, isCommonUse: false })
+    const registerResponse = await postToPipeline('/pipeline/upload-image-from-url', {
+      imageUrl: upstreamImageUrl,
+      isCommonUse: false
     });
-    const registerBody = await parseJsonOrText(registerRes);
-    if (!registerRes.ok) {
+    if (!registerResponse.ok) {
       return NextResponse.json(
-        { error: 'Step 3 failed: upload-image-from-url', details: registerBody },
-        { status: registerRes.status }
+        {
+          error: 'Step 3 failed: upload-image-from-url',
+          details: registerResponse.parsedBody,
+          attempted_urls: registerResponse.attemptedUrls
+        },
+        { status: registerResponse.status }
       );
     }
 
-    const registerPayload = registerBody as { imageId: string };
+    const registerPayload = registerResponse.parsedBody as { imageId: string };
     if (!registerPayload?.imageId) {
       return NextResponse.json(
-        { error: 'Step 3 failed: missing imageId in response', details: registerBody },
+        { error: 'Step 3 failed: missing imageId in response', details: registerResponse.parsedBody },
         { status: 502 }
       );
     }
 
-    const captionsRes = await fetch(`${apiUrl}/pipeline/generate-captions`, {
-      method: 'POST',
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        imageId: registerPayload.imageId,
-        humor_flavor: {
-          id: body.flavor?.id,
-          name: body.flavor?.name ?? body.flavor?.slug ?? 'Custom Flavor',
-          description: body.flavor?.description ?? null,
-          prompt_chain: promptChain
-        }
-      })
+    const captionsResponse = await postToPipeline('/pipeline/generate-captions', {
+      imageId: registerPayload.imageId,
+      humor_flavor: {
+        id: body.flavor?.id,
+        name: body.flavor?.name ?? body.flavor?.slug ?? 'Custom Flavor',
+        description: body.flavor?.description ?? null,
+        prompt_chain: promptChain
+      }
     });
 
-    const captionsBody = await parseJsonOrText(captionsRes);
-    if (!captionsRes.ok) {
+    if (!captionsResponse.ok) {
       return NextResponse.json(
-        { error: 'Step 4 failed: generate-captions', details: captionsBody },
-        { status: captionsRes.status }
+        {
+          error: 'Step 4 failed: generate-captions',
+          details: captionsResponse.parsedBody,
+          attempted_urls: captionsResponse.attemptedUrls
+        },
+        { status: captionsResponse.status }
       );
     }
 
     return NextResponse.json({
-      data: captionsBody,
+      data: captionsResponse.parsedBody,
       image_url: upstreamImageUrl,
       image_id: registerPayload.imageId
     });

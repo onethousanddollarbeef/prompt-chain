@@ -454,8 +454,15 @@ export default function Page() {
 
     const payload = (await res.json()) as { error?: string; details?: unknown; data?: unknown };
     if (!res.ok) {
-      const detailMessage =
-        typeof payload.details === 'string' ? payload.details : JSON.stringify(payload.details ?? {});
+      const detailMessage = (() => {
+        if (typeof payload.details === 'string') {
+          if (payload.details.includes('<!DOCTYPE html') || payload.details.includes('<html')) {
+            return 'Upstream returned HTML/404. The API base URL is likely right, but the path may require /api prefix.';
+          }
+          return payload.details.slice(0, 300);
+        }
+        return JSON.stringify(payload.details ?? {}).slice(0, 300);
+      })();
       setStatus(`${payload.error ?? 'Generation failed'}${detailMessage ? `: ${detailMessage}` : ''}`);
       return;
     }

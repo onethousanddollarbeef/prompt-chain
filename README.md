@@ -21,6 +21,8 @@ Copy `.env.example` to `.env.local` and fill in:
 - `ALMOSTCRACKD_API_URL` (default: `https://api.almostcrackd.ai`)
 - `ALMOSTCRACKD_API_KEY` (optional unless your API requires auth)
 
+The server route will try both `/pipeline/...` and `/api/pipeline/...` paths automatically.
+
 ## Setup
 
 1. Install dependencies:
