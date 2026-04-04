@@ -31,11 +31,3 @@ export type HumorFlavorStep = {
   created_datetime_utc: string;
   modified_datetime_utc: string | null;
 };
-
-export type CaptionRun = {
-  id: string;
-  flavor_id: string;
-  image_url: string;
-  response_json: unknown;
-  created_at: string;
-};
