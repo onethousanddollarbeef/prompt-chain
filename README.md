@@ -8,9 +8,8 @@ This project is a Next.js + Supabase admin tool for managing humor flavors and o
 - CRUD for humor flavors.
 - CRUD for humor flavor steps.
 - Step reordering (move up/down).
-- Store and review generated caption runs for each flavor.
 - Light / dark / system theme mode.
-- API test harness that calls Assignment 5 REST API.
+- API test harness that calls Assignment 5 REST API pipeline endpoints.
 - Explicit Google login/logout controls in UI (no silent auto-deny in incognito).
 
 ## Environment variables
@@ -21,7 +20,6 @@ Copy `.env.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `ALMOSTCRACKD_API_URL` (default: `https://api.almostcrackd.ai`)
 - `ALMOSTCRACKD_API_KEY` (optional unless your API requires auth)
-- `ALMOSTCRACKD_CAPTIONS_PATH` (optional path override, default tries `/captions/generate` then `/captions`)
 
 ## Setup
 
@@ -48,11 +46,9 @@ I cannot access your GitHub/Vercel accounts directly from this environment, so d
 3. In Vercel project settings, disable **Deployment Protection** so Incognito mode works.
 4. Deploy and collect commit-specific URLs for submission.
 
-## What I still need from you
+## Notes
 
-- Confirm exact Assignment 5 endpoint path if it differs from `/captions/generate`.
-- Provide Supabase project credentials and (if required) an AlmostCrackd API key.
-- Confirm where image test set URLs are stored (if you want a picker rather than manual URL input).
+- This app does not store generated captions in Supabase. It sends generation requests to `api.almostcrackd.ai`, and the REST API manages caption persistence.
 
 ## Merge conflict tip (GitHub UI)
 
