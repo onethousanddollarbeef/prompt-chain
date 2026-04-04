@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseBrowserClient, getSupabaseEnvInfo } from '@/lib/supabase';
-import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
+import type { HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -16,7 +16,6 @@ export default function Page() {
   const [flavors, setFlavors] = useState<HumorFlavor[]>([]);
   const [selectedFlavorId, setSelectedFlavorId] = useState<string>('');
   const [steps, setSteps] = useState<HumorFlavorStep[]>([]);
-  const [runs, setRuns] = useState<CaptionRun[]>([]);
 
   const [newFlavorSlug, setNewFlavorSlug] = useState('');
   const [newFlavorDescription, setNewFlavorDescription] = useState('');
@@ -61,25 +60,6 @@ export default function Page() {
     [supabase]
   );
 
-  const loadRuns = useCallback(
-    async (flavorId: string) => {
-      if (!supabase) return;
-
-      const { data, error } = await supabase
-        .from('humor_flavor_runs')
-        .select('*')
-        .eq('flavor_id', flavorId)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (error) {
-        setStatus(error.message);
-        return;
-      }
-      setRuns(data ?? []);
-    },
-    [supabase]
-  );
-
   const loadFlavors = useCallback(async () => {
     if (!supabase) return;
 
@@ -103,9 +83,8 @@ export default function Page() {
         setSelectedFlavorId(nextFlavorId);
       }
       await loadSteps(nextFlavorId);
-      await loadRuns(nextFlavorId);
     }
-  }, [loadRuns, loadSteps, supabase]);
+  }, [loadSteps, supabase]);
 
   const loadProfile = useCallback(
     async (currentUser: User | null) => {
@@ -113,7 +92,6 @@ export default function Page() {
         setProfile(null);
         setFlavors([]);
         setSteps([]);
-        setRuns([]);
         setSelectedFlavorId('');
         return;
       }
@@ -138,7 +116,6 @@ export default function Page() {
         setStatus('Logged in, but account is not admin in profiles table.');
         setFlavors([]);
         setSteps([]);
-        setRuns([]);
         setSelectedFlavorId('');
       }
     },
@@ -324,7 +301,6 @@ export default function Page() {
     }
     setSelectedFlavorId('');
     setSteps([]);
-    setRuns([]);
     await loadFlavors();
   }
 
@@ -455,9 +431,16 @@ export default function Page() {
       }
     }
 
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
     const res = await fetch('/api/generate-captions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
+      },
       body: JSON.stringify({
         flavor: selectedFlavor,
         steps: steps.map((step) => ({
@@ -471,21 +454,21 @@ export default function Page() {
 
     const payload = (await res.json()) as { error?: string; details?: unknown; data?: unknown };
     if (!res.ok) {
-      const detailMessage =
-        typeof payload.details === 'string' ? payload.details : JSON.stringify(payload.details ?? {});
+      const detailMessage = (() => {
+        if (typeof payload.details === 'string') {
+          if (payload.details.includes('<!DOCTYPE html') || payload.details.includes('<html')) {
+            return 'Upstream returned HTML/404. The API base URL is likely right, but the path may require /api prefix.';
+          }
+          return payload.details.slice(0, 300);
+        }
+        return JSON.stringify(payload.details ?? {}).slice(0, 300);
+      })();
       setStatus(`${payload.error ?? 'Generation failed'}${detailMessage ? `: ${detailMessage}` : ''}`);
       return;
     }
 
     setApiResult(JSON.stringify(payload.data, null, 2));
-
-    await supabase.from('humor_flavor_runs').insert({
-      flavor_id: selectedFlavor.id,
-      image_url: normalizedImageInput,
-      response_json: payload.data
-    });
-    await loadRuns(selectedFlavor.id);
-    setStatus('Captions generated and saved.');
+    setStatus('Captions generated via REST API.');
   }
 
   async function onImageFileSelected(file: File | null) {
@@ -615,7 +598,6 @@ export default function Page() {
                       onClick={async () => {
                         setSelectedFlavorId(flavor.id);
                         await loadSteps(flavor.id);
-                        await loadRuns(flavor.id);
                       }}
                     >
                       {selectedFlavorId === flavor.id ? 'Selected' : 'Select'}
@@ -679,7 +661,7 @@ export default function Page() {
 
             <section className="card">
             <h2>Test flavor via API</h2>
-            <p className="small">This only generates captions and saves runs. It does not create a flavor row.</p>
+            <p className="small">Captions are generated and stored by the REST API (not in Supabase).</p>
             <div className="row">
               <button
                 type="button"
@@ -717,21 +699,6 @@ export default function Page() {
               </button>
             </form>
             {apiResult && <pre>{apiResult}</pre>}
-            </section>
-
-            <section className="card">
-            <h2>Recent generated captions</h2>
-            <div className="grid scroll-area">
-              {runs.map((run) => (
-                <div key={run.id} className="card">
-                  <p className="small">{new Date(run.created_at).toLocaleString()}</p>
-                  <p>
-                    <strong>Image:</strong> {run.image_url}
-                  </p>
-                  <pre>{JSON.stringify(run.response_json, null, 2)}</pre>
-                </div>
-              ))}
-            </div>
             </section>
           </div>
         </div>
