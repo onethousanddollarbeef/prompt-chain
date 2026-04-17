@@ -56,6 +56,7 @@ export default function Page() {
   const [generationStage, setGenerationStage] = useState("");
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  const envInfo = useMemo(() => getSupabaseEnvInfo(), []);
 
   const selectedFlavor = useMemo(
     () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
@@ -212,6 +213,10 @@ export default function Page() {
       return bTime - aTime;
     });
   }
+
+  useEffect(() => {
+    selectedFlavorIdRef.current = selectedFlavorId;
+  }, [selectedFlavorId]);
 
   const loadSteps = useCallback(
     async (flavorId: string) => {
@@ -396,6 +401,7 @@ export default function Page() {
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
       const nextUser = newSession?.user ?? null;
       setUser(nextUser);
+      if (event === 'TOKEN_REFRESHED') return;
       void loadProfile(nextUser);
     });
 
@@ -456,9 +462,57 @@ export default function Page() {
     if (panel) setActivePanel(panel);
   }
 
+
+  async function quickGenerateCaptions(e: FormEvent) {
+    e.preventDefault();
+    if (!imageUrl.trim()) {
+      setStatus('Please provide an image URL.');
+      return;
+    }
+
+    const res = await fetch('/api/generate-captions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        flavor: {
+          id: 'quick-start-flavor',
+          name: 'Quick Start Flavor',
+          description: 'Fallback local mode without Supabase'
+        },
+        steps: [
+          {
+            position: 1,
+            title: 'Describe image',
+            instruction: 'Describe what is in the image in plain text.'
+          },
+          {
+            position: 2,
+            title: 'Find humor angle',
+            instruction: 'Take the description and make a funny observation.'
+          },
+          {
+            position: 3,
+            title: 'Generate captions',
+            instruction: 'Produce five short funny captions.'
+          }
+        ],
+        imageUrl: imageUrl.trim()
+      })
+    });
+
+    const payload = (await res.json()) as { error?: string; data?: unknown };
+    if (!res.ok) {
+      setStatus(payload.error ?? 'Generation failed');
+      return;
+    }
+
+    setApiResult(JSON.stringify(payload.data, null, 2));
+    setStatus('Quick caption generation complete.');
+  }
+
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !profile || !newFlavorName.trim()) return;
+    if (!supabase || !profile || !newFlavorSlug.trim()) return;
 
     setCreateFlavorNotice("");
 
@@ -774,7 +828,7 @@ export default function Page() {
       }
     }
 
-    await loadSteps(step.flavor_id);
+    await loadSteps(String(step.humor_flavor_id));
   }
 
   async function testFlavor(e: FormEvent) {
@@ -1001,6 +1055,22 @@ export default function Page() {
     reader.onload = () => {
       const result = typeof reader.result === "string" ? reader.result : "";
       setImageUrl(result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function onImageFileSelected(file: File | null) {
+    if (!file) {
+      setUploadedImageDataUrl('');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        setUploadedImageDataUrl(result);
+      }
     };
     reader.readAsDataURL(file);
   }
