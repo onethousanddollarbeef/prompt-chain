@@ -10,7 +10,8 @@ type IncomingStep = {
 
 type IncomingFlavor = {
   id: string;
-  name: string;
+  name?: string;
+  slug?: string;
   description?: string | null;
 };
 
