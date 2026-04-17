@@ -50,6 +50,8 @@ export default function Page() {
   const [imageUploadName, setImageUploadName] = useState("");
   const [status, setStatus] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStage, setGenerationStage] = useState("");
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -155,6 +157,13 @@ export default function Page() {
       errorMessage.includes(`'${columnName}'`) ||
       errorMessage.includes(`\"${columnName}\"`)
     );
+  }
+
+  function formatTimestamp(value?: string) {
+    if (!value) return "Unknown time";
+    const timestamp = new Date(value);
+    if (Number.isNaN(timestamp.getTime())) return "Unknown time";
+    return timestamp.toLocaleString();
   }
 
   const loadSteps = useCallback(
@@ -749,6 +758,8 @@ export default function Page() {
     };
 
     setIsGenerating(true);
+    setGenerationProgress(5);
+    setGenerationStage("Starting caption generation...");
     setStatus("Generate clicked. Running caption pipeline...");
 
     try {
@@ -756,6 +767,8 @@ export default function Page() {
       let resolvedImageId = "";
 
       if (selectedFile) {
+        setGenerationProgress(15);
+        setGenerationStage("Requesting presigned upload URL...");
         const presignedResponse = await fetch(
           `${API_BASE_URL}/pipeline/generate-presigned-url`,
           {
@@ -776,6 +789,8 @@ export default function Page() {
           cdnUrl: string;
         };
 
+        setGenerationProgress(30);
+        setGenerationStage("Uploading image...");
         const uploadResponse = await fetch(presignedPayload.presignedUrl, {
           method: "PUT",
           headers: { "Content-Type": selectedFile.type },
@@ -797,6 +812,8 @@ export default function Page() {
         return;
       }
 
+      setGenerationProgress(45);
+      setGenerationStage("Registering image...");
       const registerResponse = await fetch(`${API_BASE_URL}/pipeline/upload-image-from-url`, {
         method: "POST",
         headers: authHeaders,
@@ -822,6 +839,8 @@ export default function Page() {
       let generationSucceeded = false;
       let lastGenerateError = "";
 
+      setGenerationProgress(60);
+      setGenerationStage("Generating captions...");
       for (const requestBody of generateBodies) {
         const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
           method: "POST",
@@ -857,6 +876,8 @@ export default function Page() {
       setRuns((previous) => [clientRun, ...previous]);
 
       if (runsTableAvailable) {
+        setGenerationProgress(85);
+        setGenerationStage("Saving generated run...");
         let { error: insertError } = await supabase.from("humor_flavor_runs").insert({
           flavor_id: selectedFlavor.id,
           image_url: resolvedImageUrl,
@@ -893,6 +914,8 @@ export default function Page() {
         await loadRuns(selectedFlavor.id);
       }
 
+      setGenerationProgress(100);
+      setGenerationStage("Done");
       setStatus(`Captions generated for image ${resolvedImageId}.`);
       setActivePanel("runs");
     } finally {
@@ -1129,6 +1152,14 @@ export default function Page() {
                   Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image {hasImageInput ? "✅" : "❌"}
                 </p>
                 <p className="small">Status: {status || "Idle"}</p>
+                {isGenerating && (
+                  <div className="generation-progress">
+                    <p className="small">
+                      {generationStage} ({generationProgress}%)
+                    </p>
+                    <progress value={generationProgress} max={100} />
+                  </div>
+                )}
                 <form className="grid" onSubmit={testFlavor}>
                   <label className="row">
                     <span>Upload image:</span>
@@ -1176,7 +1207,7 @@ export default function Page() {
 
                     return (
                       <div key={run.id} className="card">
-                        <p className="small">{new Date(run.created_datetime_utc).toLocaleString()}</p>
+                        <p className="small">{formatTimestamp(run.created_datetime_utc)}</p>
                         <p>
                           <strong>Image:</strong> {run.image_url}
                         </p>

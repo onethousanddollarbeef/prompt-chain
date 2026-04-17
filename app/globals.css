@@ -136,6 +136,16 @@ button {
   z-index: 30;
 }
 
+.generation-progress {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.generation-progress progress {
+  width: 100%;
+  height: 0.75rem;
+}
+
 @media (max-width: 980px) {
   .admin-layout {
     grid-template-columns: 1fr;
