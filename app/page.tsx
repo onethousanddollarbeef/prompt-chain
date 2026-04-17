@@ -1,43 +1,218 @@
-'use client';
+"use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { User } from '@supabase/supabase-js';
-import { getSupabaseBrowserClient, getSupabaseEnvInfo } from '@/lib/supabase';
-import type { CaptionRun, HumorFlavor, HumorFlavorStep, Profile } from '@/lib/types';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import type { User } from "@supabase/supabase-js";
+import { getSupabaseBrowserClient } from "@/lib/supabase";
+import type {
+  CaptionRun,
+  HumorFlavor,
+  HumorFlavorStep,
+  Profile,
+} from "@/lib/types";
 
-type ThemeMode = 'light' | 'dark' | 'system';
+type AdminPanel = "create-flavor" | "flavors" | "steps" | "test" | "runs";
+type ThemeMode = "light" | "dark" | "system";
+
+const API_BASE_URL = "https://api.almostcrackd.ai";
+const LOCAL_RUNS_STORAGE_KEY = "humor-flavor-local-runs";
+const SUPPORTED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+]);
 
 export default function Page() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState<ThemeMode>('system');
+  const [activePanel, setActivePanel] = useState<AdminPanel>("create-flavor");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("system");
 
   const [flavors, setFlavors] = useState<HumorFlavor[]>([]);
-  const [selectedFlavorId, setSelectedFlavorId] = useState<string>('');
+  const [selectedFlavorId, setSelectedFlavorId] = useState<string>("");
   const [steps, setSteps] = useState<HumorFlavorStep[]>([]);
   const [runs, setRuns] = useState<CaptionRun[]>([]);
+  const [runsTableAvailable, setRunsTableAvailable] = useState(true);
 
-  const [newFlavorSlug, setNewFlavorSlug] = useState('');
-  const [newFlavorDescription, setNewFlavorDescription] = useState('');
+  const [newFlavorName, setNewFlavorName] = useState("");
+  const [newFlavorDescription, setNewFlavorDescription] = useState("");
+  const [confirmCreateFlavor, setConfirmCreateFlavor] = useState(false);
+  const [createFlavorNotice, setCreateFlavorNotice] = useState("");
+  const [flavorSearch, setFlavorSearch] = useState("");
 
-  const [stepTitle, setStepTitle] = useState('');
-  const [stepInstruction, setStepInstruction] = useState('');
+  const [stepTitle, setStepTitle] = useState("");
+  const [stepInstruction, setStepInstruction] = useState("");
 
-  const [imageUrl, setImageUrl] = useState('');
-  const [imageInputMode, setImageInputMode] = useState<'url' | 'file'>('url');
-  const [uploadedImageDataUrl, setUploadedImageDataUrl] = useState<string>('');
-  const [apiResult, setApiResult] = useState<string>('');
-  const [status, setStatus] = useState<string>('');
-  const selectedFlavorIdRef = useRef<string>('');
+  const [imageUrl, setImageUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [imageUploadName, setImageUploadName] = useState("");
+  const [status, setStatus] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStage, setGenerationStage] = useState("");
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const envInfo = useMemo(() => getSupabaseEnvInfo(), []);
 
   const selectedFlavor = useMemo(
     () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
-    [flavors, selectedFlavorId]
+    [flavors, selectedFlavorId],
   );
+  const filteredFlavors = useMemo(() => {
+    const query = flavorSearch.trim().toLowerCase();
+    if (!query) return flavors;
+    return flavors.filter((flavor) => {
+      const slugMatch = flavor.slug.toLowerCase().includes(query);
+      const descriptionMatch = (flavor.description ?? "").toLowerCase().includes(query);
+      return slugMatch || descriptionMatch;
+    });
+  }, [flavorSearch, flavors]);
+
+  const hasImageInput = Boolean(selectedFile || imageUrl.trim());
+  const canGenerate = Boolean(selectedFlavorId) && hasImageInput && !isGenerating;
+
+  function extractCaptions(payload: unknown): string[] {
+    const fromArray = (arr: unknown[]) =>
+      arr
+        .flatMap((item) => {
+          if (typeof item === "string") return [item];
+          if (!item || typeof item !== "object") return [];
+          const obj = item as Record<string, unknown>;
+          const direct = obj.content ?? obj.caption ?? obj.text;
+          if (typeof direct === "string") return [direct];
+          return extractCaptions(item);
+        })
+        .filter((text) => text.trim().length > 0);
+
+    if (Array.isArray(payload)) return fromArray(payload);
+
+    if (payload && typeof payload === "object") {
+      const obj = payload as Record<string, unknown>;
+      if (Array.isArray(obj.captions)) return fromArray(obj.captions);
+      if (Array.isArray(obj.data)) return fromArray(obj.data);
+      if (Array.isArray(obj.results)) return fromArray(obj.results);
+    }
+
+    return [];
+  }
+
+  function normalizeFlavorRow(row: Record<string, unknown>): HumorFlavor {
+    return {
+      id: String(row.id ?? ""),
+      slug: String(row.slug ?? row.name ?? "(missing-slug)"),
+      description: typeof row.description === "string" ? row.description : null,
+      created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
+      modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? row.created_by ?? ""),
+      created_datetime_utc: String(
+        row.created_datetime_utc ?? row.created_at ?? new Date().toISOString(),
+      ),
+      modified_datetime_utc: String(
+        row.modified_datetime_utc ??
+          row.modified_at ??
+          row.created_datetime_utc ??
+          row.created_at ??
+          new Date().toISOString(),
+      ),
+    };
+  }
+
+  function normalizeStepRow(row: Record<string, unknown>): HumorFlavorStep {
+    return {
+      id: String(row.id ?? ""),
+      flavor_id: String(row.flavor_id ?? ""),
+      position: Number(row.position ?? 0),
+      title: String(row.title ?? ""),
+      instruction: String(row.instruction ?? ""),
+      created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
+      modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? row.created_by ?? ""),
+      created_datetime_utc: String(
+        row.created_datetime_utc ?? row.created_at ?? new Date().toISOString(),
+      ),
+      modified_datetime_utc: String(
+        row.modified_datetime_utc ??
+          row.modified_at ??
+          row.created_datetime_utc ??
+          row.created_at ??
+          new Date().toISOString(),
+      ),
+    };
+  }
+
+  function normalizeRunRow(row: Record<string, unknown>): CaptionRun {
+    return {
+      id: String(row.id ?? ""),
+      flavor_id: String(row.flavor_id ?? ""),
+      image_url: String(row.image_url ?? ""),
+      response_json: row.response_json ?? null,
+      created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
+      modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? row.created_by ?? ""),
+      created_datetime_utc: String(
+        row.created_datetime_utc ?? row.created_at ?? new Date().toISOString(),
+      ),
+      modified_datetime_utc: String(
+        row.modified_datetime_utc ??
+          row.modified_at ??
+          row.created_datetime_utc ??
+          row.created_at ??
+          new Date().toISOString(),
+      ),
+    };
+  }
+
+  function isColumnMissingError(errorMessage: string, columnName: string) {
+    return (
+      errorMessage.includes(`column \"${columnName}\"`) ||
+      errorMessage.includes(`'${columnName}'`) ||
+      errorMessage.includes(`\"${columnName}\"`)
+    );
+  }
+
+  function formatTimestamp(value?: string) {
+    if (!value) return "Unknown time";
+    const timestamp = new Date(value);
+    if (Number.isNaN(timestamp.getTime())) return "Unknown time";
+    return timestamp.toLocaleString();
+  }
+
+  function readLocalRunsMap(): Record<string, CaptionRun[]> {
+    try {
+      const raw = localStorage.getItem(LOCAL_RUNS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, CaptionRun[]>;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function getLocalRunsForFlavor(flavorId: string): CaptionRun[] {
+    const runMap = readLocalRunsMap();
+    return runMap[flavorId] ?? [];
+  }
+
+  function saveLocalRun(run: CaptionRun) {
+    const runMap = readLocalRunsMap();
+    const current = runMap[run.flavor_id] ?? [];
+    const deduped = [run, ...current.filter((existing) => existing.id !== run.id)].slice(0, 20);
+    runMap[run.flavor_id] = deduped;
+    localStorage.setItem(LOCAL_RUNS_STORAGE_KEY, JSON.stringify(runMap));
+  }
+
+  function mergeRunsByNewest(primaryRuns: CaptionRun[], fallbackRuns: CaptionRun[]) {
+    const byId = new Map<string, CaptionRun>();
+    for (const run of [...primaryRuns, ...fallbackRuns]) {
+      byId.set(run.id, run);
+    }
+    return [...byId.values()].sort((a, b) => {
+      const aTime = new Date(a.created_datetime_utc ?? 0).getTime();
+      const bTime = new Date(b.created_datetime_utc ?? 0).getTime();
+      return bTime - aTime;
+    });
+  }
 
   useEffect(() => {
     selectedFlavorIdRef.current = selectedFlavorId;
@@ -48,64 +223,126 @@ export default function Page() {
       if (!supabase) return;
 
       const { data, error } = await supabase
-        .from('humor_flavor_steps')
-        .select('*')
-        .eq('humor_flavor_id', flavorId)
-        .order('order_by', { ascending: true });
+        .from("humor_flavor_steps")
+        .select("*")
+        .eq("flavor_id", flavorId)
+        .order("position", { ascending: true });
+
       if (error) {
         setStatus(error.message);
         return;
       }
-      setSteps(data ?? []);
+
+      const normalized = (data ?? []).map((row) => normalizeStepRow(row as Record<string, unknown>));
+      setSteps(normalized);
     },
-    [supabase]
+    [supabase],
   );
 
   const loadRuns = useCallback(
     async (flavorId: string) => {
-      if (!supabase) return;
+      if (!supabase || !runsTableAvailable) return;
 
       const { data, error } = await supabase
-        .from('humor_flavor_runs')
-        .select('*')
-        .eq('flavor_id', flavorId)
-        .order('created_at', { ascending: false })
+        .from("humor_flavor_runs")
+        .select("*")
+        .eq("flavor_id", flavorId)
+        .order("created_datetime_utc", { ascending: false })
         .limit(10);
+
       if (error) {
+        if (isColumnMissingError(error.message, "created_datetime_utc")) {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from("humor_flavor_runs")
+            .select("*")
+            .eq("flavor_id", flavorId)
+            .order("created_at", { ascending: false })
+            .limit(10);
+
+          if (fallbackError) {
+            if (fallbackError.message.includes("humor_flavor_runs")) {
+              setRunsTableAvailable(false);
+              setRuns(getLocalRunsForFlavor(flavorId));
+              return;
+            }
+            setStatus(fallbackError.message);
+            return;
+          }
+
+          const normalizedFallback = (fallbackData ?? []).map((row) =>
+            normalizeRunRow(row as Record<string, unknown>),
+          );
+          const localRuns = getLocalRunsForFlavor(flavorId);
+          setRuns(mergeRunsByNewest(normalizedFallback, localRuns));
+          return;
+        }
+
+        if (error.message.includes("humor_flavor_runs")) {
+          setRunsTableAvailable(false);
+          setRuns(getLocalRunsForFlavor(flavorId));
+          return;
+        }
         setStatus(error.message);
         return;
       }
-      setRuns(data ?? []);
+
+      const normalized = (data ?? []).map((row) => normalizeRunRow(row as Record<string, unknown>));
+      const localRuns = getLocalRunsForFlavor(flavorId);
+      setRuns(mergeRunsByNewest(normalized, localRuns));
     },
-    [supabase]
+    [supabase, runsTableAvailable],
   );
 
   const loadFlavors = useCallback(async () => {
     if (!supabase) return;
 
     const { data, error } = await supabase
-      .from('humor_flavors')
-      .select('*')
-      .order('created_datetime_utc', { ascending: false });
+      .from("humor_flavors")
+      .select("*")
+      .order("created_datetime_utc", { ascending: false });
+
     if (error) {
+      if (isColumnMissingError(error.message, "created_datetime_utc")) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from("humor_flavors")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (fallbackError) {
+          setStatus(fallbackError.message);
+          return;
+        }
+
+        const fallbackNormalized = (fallbackData ?? []).map((row) =>
+          normalizeFlavorRow(row as Record<string, unknown>),
+        );
+
+        setFlavors(fallbackNormalized);
+
+        if (fallbackNormalized[0] && !selectedFlavorId) {
+          setSelectedFlavorId(fallbackNormalized[0].id);
+          await loadSteps(fallbackNormalized[0].id);
+          await loadRuns(fallbackNormalized[0].id);
+        }
+        return;
+      }
+
       setStatus(error.message);
       return;
     }
-    setFlavors(data ?? []);
 
-    const currentSelectedFlavorId = selectedFlavorIdRef.current;
-    const selectedStillExists = data?.some((flavor) => flavor.id === currentSelectedFlavorId);
-    const nextFlavorId =
-      (selectedStillExists ? currentSelectedFlavorId : null) ?? data?.[0]?.id ?? '';
+    const normalized = (data ?? []).map((row) =>
+      normalizeFlavorRow(row as Record<string, unknown>),
+    );
 
-    if (nextFlavorId) {
-      if (nextFlavorId !== selectedFlavorIdRef.current) {
-        setSelectedFlavorId(nextFlavorId);
-      }
-      await loadSteps(nextFlavorId);
-      await loadRuns(nextFlavorId);
+    setFlavors(normalized);
+
+    if (normalized[0] && !selectedFlavorId) {
+      setSelectedFlavorId(normalized[0].id);
+      await loadSteps(normalized[0].id);
+      await loadRuns(normalized[0].id);
     }
-  }, [loadRuns, loadSteps, supabase]);
+  }, [supabase, selectedFlavorId, loadSteps, loadRuns]);
 
   const loadProfile = useCallback(
     async (currentUser: User | null) => {
@@ -114,14 +351,14 @@ export default function Page() {
         setFlavors([]);
         setSteps([]);
         setRuns([]);
-        setSelectedFlavorId('');
+        setSelectedFlavorId("");
         return;
       }
 
       const { data: profileData, error } = await supabase
-        .from('profiles')
-        .select('id, is_superadmin, is_matrix_admin')
-        .eq('id', currentUser.id)
+        .from("profiles")
+        .select("id, is_superadmin, is_matrix_admin")
+        .eq("id", currentUser.id)
         .single();
 
       if (error) {
@@ -131,31 +368,28 @@ export default function Page() {
       }
 
       setProfile(profileData);
+
       if (profileData.is_superadmin || profileData.is_matrix_admin) {
-        setStatus('Authenticated as admin.');
+        setStatus("Authenticated as admin.");
         await loadFlavors();
       } else {
-        setStatus('Logged in, but account is not admin in profiles table.');
-        setFlavors([]);
-        setSteps([]);
-        setRuns([]);
-        setSelectedFlavorId('');
+        setStatus("Logged in, but account is not admin in profiles table.");
       }
     },
-    [loadFlavors, supabase]
+    [supabase, loadFlavors],
   );
 
   const init = useCallback(async () => {
     setLoading(true);
 
     if (!supabase) {
-      setStatus('Missing Supabase environment variables.');
+      setStatus("Missing Supabase environment variables.");
       setLoading(false);
       return;
     }
 
     const {
-      data: { session }
+      data: { session },
     } = await supabase.auth.getSession();
 
     const existingUser = session?.user ?? null;
@@ -163,8 +397,8 @@ export default function Page() {
     await loadProfile(existingUser);
 
     const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
       const nextUser = newSession?.user ?? null;
       setUser(nextUser);
       if (event === 'TOKEN_REFRESHED') return;
@@ -173,12 +407,13 @@ export default function Page() {
 
     setLoading(false);
     return () => subscription.unsubscribe();
-  }, [loadProfile, supabase]);
+  }, [supabase, loadProfile]);
 
   useEffect(() => {
-    const savedTheme = (localStorage.getItem('theme-mode') as ThemeMode | null) ?? 'system';
-    setTheme(savedTheme);
+    const savedTheme = (localStorage.getItem("theme-mode") as ThemeMode | null) ?? "system";
+    setThemeMode(savedTheme);
     document.documentElement.dataset.theme = savedTheme;
+
     let cleanup: (() => void) | undefined;
     void init().then((unsub) => {
       cleanup = unsub;
@@ -186,27 +421,26 @@ export default function Page() {
     return () => cleanup?.();
   }, [init]);
 
-  function isAdmin() {
-    return Boolean(profile?.is_superadmin || profile?.is_matrix_admin);
+  function updateTheme(nextMode: ThemeMode) {
+    setThemeMode(nextMode);
+    localStorage.setItem("theme-mode", nextMode);
+    document.documentElement.dataset.theme = nextMode;
   }
 
-  function setThemeMode(mode: ThemeMode) {
-    setTheme(mode);
-    localStorage.setItem('theme-mode', mode);
-    document.documentElement.dataset.theme = mode;
+  function isAdmin() {
+    return Boolean(profile?.is_superadmin || profile?.is_matrix_admin);
   }
 
   async function loginWithGoogle() {
     if (!supabase) return;
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        redirectTo: window.location.origin
-      }
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
-    if (error) {
-      setStatus(error.message);
-    }
+
+    if (error) setStatus(error.message);
   }
 
   async function logout() {
@@ -218,7 +452,14 @@ export default function Page() {
     }
     setUser(null);
     setProfile(null);
-    setStatus('Logged out.');
+    setStatus("Logged out.");
+  }
+
+  async function selectFlavor(flavorId: string, panel?: AdminPanel) {
+    setSelectedFlavorId(flavorId);
+    await loadSteps(flavorId);
+    await loadRuns(flavorId);
+    if (panel) setActivePanel(panel);
   }
 
 
@@ -273,131 +514,290 @@ export default function Page() {
     e.preventDefault();
     if (!supabase || !profile || !newFlavorSlug.trim()) return;
 
-    const { error } = await supabase.from('humor_flavors').insert({
-      slug: newFlavorSlug.trim(),
+    setCreateFlavorNotice("");
+
+    let { error } = await supabase.from("humor_flavors").insert({
+      slug: newFlavorName.trim(),
       description: newFlavorDescription.trim() || null,
       created_by_user_id: profile.id,
-      modified_by_user_id: profile.id
+      modified_by_user_id: profile.id,
     });
+
+    if (
+      error &&
+      (isColumnMissingError(error.message, "slug") ||
+        isColumnMissingError(error.message, "created_by_user_id") ||
+        isColumnMissingError(error.message, "modified_by_user_id"))
+    ) {
+      const fallbackResult = await supabase.from("humor_flavors").insert({
+        name: newFlavorName.trim(),
+        description: newFlavorDescription.trim() || null,
+        created_by: profile.id,
+      });
+      error = fallbackResult.error;
+    }
 
     if (error) {
       setStatus(error.message);
+      setCreateFlavorNotice(`❌ Create failed: ${error.message}`);
       return;
     }
 
-    setNewFlavorSlug('');
-    setNewFlavorDescription('');
+    const createdFlavorName = newFlavorName.trim();
+    setNewFlavorName("");
+    setNewFlavorDescription("");
+    setConfirmCreateFlavor(false);
     await loadFlavors();
-    setStatus('Flavor created.');
+    setStatus(`Flavor "${createdFlavorName}" created.`);
+    setCreateFlavorNotice(`✅ Flavor "${createdFlavorName}" created successfully.`);
   }
 
   async function updateFlavor(flavor: HumorFlavor) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
-    const newSlug = prompt('New flavor slug', flavor.slug);
+    const newSlug = prompt("New flavor slug", flavor.slug);
     if (!newSlug) return;
 
-    const { error } = await supabase
-      .from('humor_flavors')
+    let { error } = await supabase
+      .from("humor_flavors")
       .update({
         slug: newSlug,
-        modified_by_user_id: profile?.id ?? null,
-        modified_datetime_utc: new Date().toISOString()
+        modified_by_user_id: profile.id,
       })
-      .eq('id', flavor.id);
+      .eq("id", flavor.id);
+
+    if (
+      error &&
+      (isColumnMissingError(error.message, "slug") ||
+        isColumnMissingError(error.message, "modified_by_user_id"))
+    ) {
+      const fallbackResult = await supabase
+        .from("humor_flavors")
+        .update({
+          name: newSlug,
+        })
+        .eq("id", flavor.id);
+      error = fallbackResult.error;
+    }
 
     if (error) {
       setStatus(error.message);
       return;
     }
+
     await loadFlavors();
   }
 
   async function deleteFlavor(flavor: HumorFlavor) {
     if (!supabase) return;
-
     if (!confirm(`Delete flavor "${flavor.slug}"?`)) return;
-    const { error } = await supabase.from('humor_flavors').delete().eq('id', flavor.id);
+
+    const { error } = await supabase
+      .from("humor_flavors")
+      .delete()
+      .eq("id", flavor.id);
+
     if (error) {
       setStatus(error.message);
       return;
     }
-    setSelectedFlavorId('');
+
+    setSelectedFlavorId("");
     setSteps([]);
     setRuns([]);
     await loadFlavors();
   }
 
+  async function duplicateFlavor(flavor: HumorFlavor) {
+    if (!supabase || !profile) return;
+
+    const suggestedSlug = `${flavor.slug}-copy-${Date.now().toString().slice(-5)}`;
+    const duplicateSlug = prompt("New slug for duplicated flavor", suggestedSlug)?.trim();
+    if (!duplicateSlug) return;
+
+    if (flavors.some((existingFlavor) => existingFlavor.slug === duplicateSlug)) {
+      setStatus(`Slug "${duplicateSlug}" already exists. Choose a unique slug.`);
+      return;
+    }
+
+    let { data: createdFlavor, error: createError } = await supabase
+      .from("humor_flavors")
+      .insert({
+        slug: duplicateSlug,
+        description: flavor.description,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      })
+      .select("id")
+      .single();
+
+    if (
+      createError &&
+      (isColumnMissingError(createError.message, "slug") ||
+        isColumnMissingError(createError.message, "created_by_user_id") ||
+        isColumnMissingError(createError.message, "modified_by_user_id"))
+    ) {
+      const fallbackResult = await supabase
+        .from("humor_flavors")
+        .insert({
+          name: duplicateSlug,
+          description: flavor.description,
+          created_by: profile.id,
+        })
+        .select("id")
+        .single();
+      createdFlavor = fallbackResult.data;
+      createError = fallbackResult.error;
+    }
+
+    if (createError || !createdFlavor) {
+      setStatus(createError?.message ?? "Failed to duplicate flavor.");
+      return;
+    }
+
+    const { data: sourceSteps, error: sourceStepsError } = await supabase
+      .from("humor_flavor_steps")
+      .select("position, title, instruction")
+      .eq("flavor_id", flavor.id)
+      .order("position", { ascending: true });
+
+    if (sourceStepsError) {
+      setStatus(`Flavor duplicated, but source steps could not be loaded: ${sourceStepsError.message}`);
+      await loadFlavors();
+      return;
+    }
+
+    if ((sourceSteps ?? []).length > 0) {
+      const duplicatedSteps = (sourceSteps ?? []).map((step) => ({
+        flavor_id: createdFlavor.id,
+        position: step.position,
+        title: step.title,
+        instruction: step.instruction,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      }));
+
+      let { error: duplicatedStepsError } = await supabase
+        .from("humor_flavor_steps")
+        .insert(duplicatedSteps);
+
+      if (
+        duplicatedStepsError &&
+        (isColumnMissingError(duplicatedStepsError.message, "created_by_user_id") ||
+          isColumnMissingError(duplicatedStepsError.message, "modified_by_user_id"))
+      ) {
+        const fallbackSteps = (sourceSteps ?? []).map((step) => ({
+          flavor_id: createdFlavor.id,
+          position: step.position,
+          title: step.title,
+          instruction: step.instruction,
+        }));
+        const fallbackResult = await supabase.from("humor_flavor_steps").insert(fallbackSteps);
+        duplicatedStepsError = fallbackResult.error;
+      }
+
+      if (duplicatedStepsError) {
+        setStatus(
+          `Flavor "${duplicateSlug}" was created, but step duplication failed: ${duplicatedStepsError.message}`,
+        );
+        await loadFlavors();
+        return;
+      }
+    }
+
+    await loadFlavors();
+    await selectFlavor(createdFlavor.id, "steps");
+    setStatus(`Flavor "${duplicateSlug}" duplicated with ${sourceSteps?.length ?? 0} step(s).`);
+  }
+
   async function createStep(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) return;
+    if (!supabase || !profile || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) {
+      return;
+    }
 
-    const template = steps[steps.length - 1];
-    const nextOrder = steps.length ? Math.max(...steps.map((s) => s.order_by)) + 1 : 1;
-    const { error } = await supabase.from('humor_flavor_steps').insert({
-      humor_flavor_id: Number(selectedFlavorId),
-      order_by: nextOrder,
-      description: stepTitle.trim(),
-      llm_user_prompt: stepInstruction.trim(),
-      llm_system_prompt: template?.llm_system_prompt ?? 'You are a humor assistant.',
-      llm_temperature: template?.llm_temperature ?? 0.7,
-      llm_input_type_id: template?.llm_input_type_id ?? 1,
-      llm_output_type_id: template?.llm_output_type_id ?? 1,
-      llm_model_id: template?.llm_model_id ?? 14,
-      humor_flavor_step_type_id: template?.humor_flavor_step_type_id ?? 1,
-      created_by_user_id: profile?.id ?? null,
-      modified_by_user_id: profile?.id ?? null
+    const nextPos = steps.length ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
+    let { error } = await supabase.from("humor_flavor_steps").insert({
+      flavor_id: selectedFlavorId,
+      position: nextPos,
+      title: stepTitle.trim(),
+      instruction: stepInstruction.trim(),
+      created_by_user_id: profile.id,
+      modified_by_user_id: profile.id,
     });
+
+    if (
+      error &&
+      (isColumnMissingError(error.message, "created_by_user_id") ||
+        isColumnMissingError(error.message, "modified_by_user_id"))
+    ) {
+      const fallbackResult = await supabase.from("humor_flavor_steps").insert({
+        flavor_id: selectedFlavorId,
+        position: nextPos,
+        title: stepTitle.trim(),
+        instruction: stepInstruction.trim(),
+      });
+      error = fallbackResult.error;
+    }
+
     if (error) {
       setStatus(error.message);
       return;
     }
 
-    setStepTitle('');
-    setStepInstruction('');
+    setStepTitle("");
+    setStepInstruction("");
     await loadSteps(selectedFlavorId);
   }
 
   async function updateStep(step: HumorFlavorStep) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
-    const title = prompt('Step title', step.description ?? '');
+    const title = prompt("Step title", step.title);
     if (!title) return;
-    const instruction = prompt('Step instruction', step.llm_user_prompt ?? '');
+    const instruction = prompt("Step instruction", step.instruction);
     if (!instruction) return;
 
-    const { error } = await supabase
-      .from('humor_flavor_steps')
-      .update({
-        description: title,
-        llm_user_prompt: instruction,
-        modified_by_user_id: profile?.id ?? null,
-        modified_datetime_utc: new Date().toISOString()
-      })
-      .eq('id', step.id);
+    let { error } = await supabase
+      .from("humor_flavor_steps")
+      .update({ title, instruction, modified_by_user_id: profile.id })
+      .eq("id", step.id);
+
+    if (error && isColumnMissingError(error.message, "modified_by_user_id")) {
+      const fallbackResult = await supabase
+        .from("humor_flavor_steps")
+        .update({ title, instruction })
+        .eq("id", step.id);
+      error = fallbackResult.error;
+    }
 
     if (error) {
       setStatus(error.message);
       return;
     }
-    await loadSteps(String(step.humor_flavor_id));
+
+    await loadSteps(step.flavor_id);
   }
 
   async function deleteStep(step: HumorFlavorStep) {
     if (!supabase) return;
+    if (!confirm(`Delete step "${step.title}"?`)) return;
 
-    if (!confirm(`Delete step "${step.description ?? `Step ${step.order_by}`}"?`)) return;
+    const { error } = await supabase
+      .from("humor_flavor_steps")
+      .delete()
+      .eq("id", step.id);
 
-    const { error } = await supabase.from('humor_flavor_steps').delete().eq('id', step.id);
     if (error) {
       setStatus(error.message);
       return;
     }
-    await loadSteps(String(step.humor_flavor_id));
+
+    await loadSteps(step.flavor_id);
   }
 
   async function moveStep(step: HumorFlavorStep, direction: -1 | 1) {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
 
     const currentIndex = steps.findIndex((s) => s.id === step.id);
     const targetIndex = currentIndex + direction;
@@ -405,15 +805,23 @@ export default function Page() {
 
     const target = steps[targetIndex];
     const updates = [
-      { id: step.id, order_by: target.order_by },
-      { id: target.id, order_by: step.order_by }
+      { id: step.id, position: target.position },
+      { id: target.id, position: step.position },
     ];
 
     for (const update of updates) {
-      const { error } = await supabase
-        .from('humor_flavor_steps')
-        .update({ order_by: update.order_by })
-        .eq('id', update.id);
+      let { error } = await supabase
+        .from("humor_flavor_steps")
+        .update({ position: update.position, modified_by_user_id: profile.id })
+        .eq("id", update.id);
+
+      if (error && isColumnMissingError(error.message, "modified_by_user_id")) {
+        const fallbackResult = await supabase
+          .from("humor_flavor_steps")
+          .update({ position: update.position })
+          .eq("id", update.id);
+        error = fallbackResult.error;
+      }
       if (error) {
         setStatus(error.message);
         return;
@@ -425,67 +833,230 @@ export default function Page() {
 
   async function testFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !selectedFlavor) return;
+    if (!supabase || !profile || !selectedFlavor || isGenerating) return;
 
-    const normalizedImageInput =
-      imageInputMode === 'url' ? imageUrl.trim() : uploadedImageDataUrl.trim();
+    const parseApiBody = async (res: Response) => {
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch {
+        return text;
+      }
+    };
 
-    if (!normalizedImageInput) {
-      setStatus(
-        imageInputMode === 'url'
-          ? 'Please provide a direct image URL.'
-          : 'Please upload an image file from your computer.'
-      );
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const token = session?.access_token;
+    if (!token) {
+      setStatus("You must be logged in to call the caption pipeline.");
       return;
     }
 
-    if (imageInputMode === 'url') {
-      try {
-        const parsed = new URL(normalizedImageInput);
-        const isLikelyDirectImage = /\.(png|jpe?g|webp|gif|bmp|heic|avif)$/i.test(parsed.pathname);
-        if (!isLikelyDirectImage) {
-          setStatus(
-            'That looks like a webpage URL, not a direct image file URL. Use a direct image link or upload a file.'
-          );
+    const authHeaders = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+
+    setIsGenerating(true);
+    setGenerationProgress(5);
+    setGenerationStage("Starting caption generation...");
+    setStatus("Generate clicked. Running caption pipeline...");
+
+    try {
+      let resolvedImageUrl = imageUrl.trim();
+      let resolvedImageId = "";
+
+      if (selectedFile) {
+        setGenerationProgress(15);
+        setGenerationStage("Requesting presigned upload URL...");
+        const presignedResponse = await fetch(
+          `${API_BASE_URL}/pipeline/generate-presigned-url`,
+          {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({ contentType: selectedFile.type }),
+          },
+        );
+
+        if (!presignedResponse.ok) {
+          const body = await parseApiBody(presignedResponse);
+          setStatus(`Step 1 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`);
           return;
         }
-      } catch {
-        setStatus('Invalid URL format. Please paste a valid direct image URL.');
+
+        const presignedPayload = (await presignedResponse.json()) as {
+          presignedUrl: string;
+          cdnUrl: string;
+        };
+
+        setGenerationProgress(30);
+        setGenerationStage("Uploading image...");
+        const uploadResponse = await fetch(presignedPayload.presignedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": selectedFile.type },
+          body: selectedFile,
+        });
+
+        if (!uploadResponse.ok) {
+          const body = await parseApiBody(uploadResponse);
+          setStatus(`Step 2 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`);
+          return;
+        }
+
+        resolvedImageUrl = presignedPayload.cdnUrl;
+        setImageUrl(presignedPayload.cdnUrl);
+      }
+
+      if (!resolvedImageUrl) {
+        setStatus("Please upload an image or provide an image URL first.");
         return;
       }
+
+      setGenerationProgress(45);
+      setGenerationStage("Registering image...");
+      const registerResponse = await fetch(`${API_BASE_URL}/pipeline/upload-image-from-url`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ imageUrl: resolvedImageUrl, isCommonUse: false }),
+      });
+
+      if (!registerResponse.ok) {
+        const body = await parseApiBody(registerResponse);
+        setStatus(`Step 3 failed: ${typeof body === "string" ? body : JSON.stringify(body)}`);
+        return;
+      }
+
+      const registerPayload = (await registerResponse.json()) as { imageId: string };
+      resolvedImageId = registerPayload.imageId;
+
+      const generateBodies = [
+        {
+          imageId: resolvedImageId,
+          humorFlavorId: selectedFlavor.id,
+          humor_flavor_id: selectedFlavor.id,
+          flavorId: selectedFlavor.id,
+        },
+        { imageId: resolvedImageId, humor_flavor_id: selectedFlavor.id },
+      ];
+
+      let payload: unknown = null;
+      let generationSucceeded = false;
+      let lastGenerateError = "";
+
+      setGenerationProgress(60);
+      setGenerationStage("Generating captions...");
+      for (const requestBody of generateBodies) {
+        const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(requestBody),
+        });
+
+        if (captionsResponse.ok) {
+          payload = (await captionsResponse.json()) as unknown;
+          generationSucceeded = true;
+          break;
+        }
+
+        const body = await parseApiBody(captionsResponse);
+        lastGenerateError = typeof body === "string" ? body : JSON.stringify(body);
+      }
+
+      if (!generationSucceeded) {
+        setStatus(`Step 4 failed: ${lastGenerateError}`);
+        return;
+      }
+
+      const clientRun: CaptionRun = {
+        id: `local-${Date.now()}`,
+        flavor_id: selectedFlavor.id,
+        image_url: resolvedImageUrl,
+        response_json: payload,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+        created_datetime_utc: new Date().toISOString(),
+        modified_datetime_utc: new Date().toISOString(),
+      };
+      saveLocalRun(clientRun);
+      setRuns((previous) => [clientRun, ...previous]);
+
+      if (runsTableAvailable) {
+        setGenerationProgress(85);
+        setGenerationStage("Saving generated run...");
+        let { error: insertError } = await supabase.from("humor_flavor_runs").insert({
+          flavor_id: selectedFlavor.id,
+          image_url: resolvedImageUrl,
+          response_json: payload,
+          created_by_user_id: profile.id,
+          modified_by_user_id: profile.id,
+        });
+
+        if (
+          insertError &&
+          (isColumnMissingError(insertError.message, "created_by_user_id") ||
+            isColumnMissingError(insertError.message, "modified_by_user_id"))
+        ) {
+          const fallbackResult = await supabase.from("humor_flavor_runs").insert({
+            flavor_id: selectedFlavor.id,
+            image_url: resolvedImageUrl,
+            response_json: payload,
+          });
+          insertError = fallbackResult.error;
+        }
+
+        if (insertError?.message.includes("humor_flavor_runs")) {
+          setRunsTableAvailable(false);
+          setStatus(`Captions generated for image ${resolvedImageId}.`);
+          setActivePanel("runs");
+          return;
+        }
+
+        if (insertError) {
+          setStatus(`Captions generated, but saving run failed: ${insertError.message}`);
+          return;
+        }
+
+        await loadRuns(selectedFlavor.id);
+      }
+
+      setGenerationProgress(100);
+      setGenerationStage("Done");
+      setStatus(`Captions generated for image ${resolvedImageId}.`);
+      setActivePanel("runs");
+    } finally {
+      setIsGenerating(false);
     }
+  }
 
-    const res = await fetch('/api/generate-captions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        flavor: selectedFlavor,
-        steps: steps.map((step) => ({
-          position: step.order_by,
-          title: step.description ?? `Step ${step.order_by}`,
-          instruction: step.llm_user_prompt ?? ''
-        })),
-        imageUrl: normalizedImageInput
-      })
-    });
-
-    const payload = (await res.json()) as { error?: string; details?: unknown; data?: unknown };
-    if (!res.ok) {
-      const detailMessage =
-        typeof payload.details === 'string' ? payload.details : JSON.stringify(payload.details ?? {});
-      setStatus(`${payload.error ?? 'Generation failed'}${detailMessage ? `: ${detailMessage}` : ''}`);
+  function handleImageUpload(file: File | null) {
+    if (!file) {
+      setSelectedFile(null);
+      setImageUploadName("");
       return;
     }
 
-    setApiResult(JSON.stringify(payload.data, null, 2));
+    if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
+      setStatus(
+        "Unsupported file type. Use image/jpeg, image/jpg, image/png, image/webp, image/gif, or image/heic.",
+      );
+      setSelectedFile(null);
+      setImageUploadName("");
+      return;
+    }
 
-    await supabase.from('humor_flavor_runs').insert({
-      flavor_id: selectedFlavor.id,
-      image_url: normalizedImageInput,
-      response_json: payload.data
-    });
-    await loadRuns(selectedFlavor.id);
-    setStatus('Captions generated and saved.');
+    setStatus("");
+    setSelectedFile(file);
+    setImageUploadName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setImageUrl(result);
+    };
+    reader.readAsDataURL(file);
   }
 
   async function onImageFileSelected(file: File | null) {
@@ -512,50 +1083,57 @@ export default function Page() {
     return (
       <main className="container">
         <h1>Humor Flavor Prompt Chain</h1>
-        <p>Missing Supabase environment variables.</p>
+        <p>Missing required environment variables.</p>
+        <ul>
+          <li>
+            <code>NEXT_PUBLIC_SUPABASE_URL</code>
+          </li>
+          <li>
+            <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
+          </li>
+        </ul>
         <p className="small">
-          NEXT_PUBLIC_SUPABASE_URL set: {String(envInfo.hasSupabaseUrl)} |
-          NEXT_PUBLIC_SUPABASE_ANON_KEY set: {String(envInfo.hasSupabaseAnonKey)}
+          Add these in Vercel Project Settings → Environment Variables, then redeploy.
         </p>
-        <p className="small">Supabase host: {envInfo.supabaseUrlHost || '(not set)'}</p>
-        <section className="card">
-          <h2>Quick test mode (no Supabase)</h2>
-          <p className="small">
-            You can still iterate like Assignment 5 by testing caption generation directly with an image URL.
-          </p>
-          <form className="grid" onSubmit={quickGenerateCaptions}>
-            <input
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="Image URL"
-              required
-            />
-            <button type="submit">Generate captions (quick mode)</button>
-          </form>
-          {status && <p className="small">{status}</p>}
-          {apiResult && <pre>{apiResult}</pre>}
-        </section>
       </main>
     );
   }
 
   return (
     <main className="container">
+      <div className="row card top-theme-toggle">
+        <strong>Theme</strong>
+        <button type="button" onClick={() => updateTheme("light")} disabled={themeMode === "light"}>
+          Light
+        </button>
+        <button type="button" onClick={() => updateTheme("dark")} disabled={themeMode === "dark"}>
+          Dark
+        </button>
+        <button type="button" onClick={() => updateTheme("system")} disabled={themeMode === "system"}>
+          System
+        </button>
+      </div>
+
       <h1>Humor Flavor Prompt Chain</h1>
       <p className="small">{status}</p>
-      <p className="small">Supabase host: {envInfo.supabaseUrlHost || '(not set)'}</p>
+
       <div className="row card">
-        <strong>{user ? `Logged in: ${user.email ?? user.id}` : 'Not logged in'}</strong>
+        <strong>{user ? `Logged in: ${user.email ?? user.id}` : "Not logged in"}</strong>
         {!user ? (
-          <button onClick={loginWithGoogle}>Login with Google</button>
+          <button type="button" onClick={loginWithGoogle}>
+            Login with Google
+          </button>
         ) : (
-          <button onClick={logout}>Log out</button>
+          <button type="button" onClick={logout}>
+            Log out
+          </button>
         )}
       </div>
 
       {user && profile && (
         <p className="small">
-          Admin flags: superadmin={String(profile.is_superadmin)} matrix_admin={String(profile.is_matrix_admin)}
+          Admin flags: superadmin={String(profile.is_superadmin)} matrix_admin=
+          {String(profile.is_matrix_admin)}
         </p>
       )}
 
@@ -563,177 +1141,251 @@ export default function Page() {
 
       {user && !isAdmin() && (
         <p>
-          Logged in successfully, but this account is not admin in <code>profiles</code>. Ensure the profile row
-          for your auth user has <code>is_superadmin=true</code> or <code>is_matrix_admin=true</code>.
+          Logged in successfully, but this account is not admin in <code>profiles</code>. Ensure the
+          profile row for your auth user has <code>is_superadmin=true</code> or <code>is_matrix_admin=true</code>.
         </p>
       )}
 
       {isAdmin() && (
-        <div className="split-layout">
-          <div className="split-column">
-            <section className="card">
-            <h2>Theme</h2>
-            <div className="row">
-              <button onClick={() => setThemeMode('light')} disabled={theme === 'light'}>
-                Light
-              </button>
-              <button onClick={() => setThemeMode('dark')} disabled={theme === 'dark'}>
-                Dark
-              </button>
-              <button onClick={() => setThemeMode('system')} disabled={theme === 'system'}>
-                System
-              </button>
-            </div>
-            </section>
-
-            <section className="card">
-            <h2>Create humor flavor</h2>
-            <p className="small">Saved to <code>humor_flavors</code> table.</p>
-            <form className="grid" onSubmit={createFlavor}>
-              <input
-                value={newFlavorSlug}
-                onChange={(e) => setNewFlavorSlug(e.target.value)}
-                placeholder="Flavor slug"
-                required
-              />
-              <textarea
-                value={newFlavorDescription}
-                onChange={(e) => setNewFlavorDescription(e.target.value)}
-                placeholder="Description"
-              />
-              <button type="submit">Create flavor</button>
-            </form>
-            </section>
-
-            <section className="card">
-            <h2>Humor flavors</h2>
-            <div className="grid scroll-area">
-              {flavors.map((flavor) => (
-                <div key={flavor.id} className="card">
-                  <div className="row">
-                    <button
-                      onClick={async () => {
-                        setSelectedFlavorId(flavor.id);
-                        await loadSteps(flavor.id);
-                        await loadRuns(flavor.id);
-                      }}
-                    >
-                      {selectedFlavorId === flavor.id ? 'Selected' : 'Select'}
-                    </button>
-                    <strong>{flavor.slug}</strong>
-                  </div>
-                  <p>{flavor.description}</p>
-                  <div className="row">
-                    <button onClick={() => updateFlavor(flavor)}>Rename</button>
-                    <button onClick={() => deleteFlavor(flavor)}>Delete</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            </section>
-          </div>
-
-          <div className="split-column">
-            <section className="card">
-            <h2>Steps {selectedFlavor ? `for ${selectedFlavor.slug}` : ''}</h2>
-            {selectedFlavor ? (
-              <>
-                <form className="grid" onSubmit={createStep}>
+        <div className="admin-layout">
+          <div>
+            {activePanel === "create-flavor" && (
+              <section className="card" id="create-flavor">
+                <h2>✨ Create humor flavor</h2>
+                <form className="grid" onSubmit={createFlavor}>
                   <input
-                    value={stepTitle}
-                    onChange={(e) => setStepTitle(e.target.value)}
-                    placeholder="Step title"
+                    value={newFlavorName}
+                    onChange={(e) => setNewFlavorName(e.target.value)}
+                    placeholder="Flavor slug"
                     required
                   />
                   <textarea
-                    value={stepInstruction}
-                    onChange={(e) => setStepInstruction(e.target.value)}
-                    placeholder="Step instruction"
-                    required
+                    value={newFlavorDescription}
+                    onChange={(e) => setNewFlavorDescription(e.target.value)}
+                    placeholder="Description"
                   />
-                  <button type="submit">Add step</button>
+                  <label className="row">
+                    <input
+                      type="checkbox"
+                      checked={confirmCreateFlavor}
+                      onChange={(e) => setConfirmCreateFlavor(e.target.checked)}
+                    />
+                    <span>Confirm I want to create this flavor</span>
+                  </label>
+                  <button type="submit" disabled={!confirmCreateFlavor}>
+                    ✅ Confirm create flavor
+                  </button>
                 </form>
-                <div className="grid scroll-area">
-                  {steps.map((step) => (
-                    <div key={step.id} className="card">
+                {createFlavorNotice && <p className="small">{createFlavorNotice}</p>}
+              </section>
+            )}
+
+            {activePanel === "flavors" && (
+              <section className="card" id="flavors">
+                <h2>🧠 Humor flavors</h2>
+                <input
+                  value={flavorSearch}
+                  onChange={(e) => setFlavorSearch(e.target.value)}
+                  placeholder="Search flavors by slug or description"
+                />
+                <div className="grid">
+                  {filteredFlavors.map((flavor) => (
+                    <div key={flavor.id} className="card">
                       <div className="row">
-                        <strong>
-                          #{step.order_by} - {step.description ?? `Step ${step.order_by}`}
-                        </strong>
+                        <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
+                          {selectedFlavorId === flavor.id ? "Selected" : "Select"}
+                        </button>
+                        <strong>{flavor.slug}</strong>
                       </div>
-                      <p>{step.llm_user_prompt}</p>
+                      <p>{flavor.description}</p>
                       <div className="row">
-                        <button onClick={() => moveStep(step, -1)}>Move up</button>
-                        <button onClick={() => moveStep(step, 1)}>Move down</button>
-                        <button onClick={() => updateStep(step)}>Edit</button>
-                        <button onClick={() => deleteStep(step)}>Delete</button>
+                        <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
+                          🪜 Edit steps
+                        </button>
+                        <button type="button" onClick={() => updateFlavor(flavor)}>
+                          Rename
+                        </button>
+                        <button type="button" onClick={() => duplicateFlavor(flavor)}>
+                          Duplicate
+                        </button>
+                        <button type="button" onClick={() => deleteFlavor(flavor)}>
+                          Delete
+                        </button>
+                        <button type="button" onClick={() => void selectFlavor(flavor.id, "test")}>
+                          🧪 Make captions
+                        </button>
                       </div>
                     </div>
                   ))}
+                  {filteredFlavors.length === 0 && (
+                    <p className="small">No flavors matched your search.</p>
+                  )}
                 </div>
-              </>
-            ) : (
-              <p>Select a flavor first.</p>
+              </section>
             )}
-            </section>
 
-            <section className="card">
-            <h2>Test flavor via API</h2>
-            <p className="small">This only generates captions and saves runs. It does not create a flavor row.</p>
-            <div className="row">
-              <button
-                type="button"
-                onClick={() => setImageInputMode('url')}
-                disabled={imageInputMode === 'url'}
-              >
-                Use URL
-              </button>
-              <button
-                type="button"
-                onClick={() => setImageInputMode('file')}
-                disabled={imageInputMode === 'file'}
-              >
-                Upload file
-              </button>
-            </div>
-            <form className="grid" onSubmit={testFlavor}>
-              {imageInputMode === 'url' ? (
-                <input
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="Direct image URL (ending in .jpg/.png/etc)"
-                  required
-                />
-              ) : (
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => void onImageFileSelected(e.target.files?.[0] ?? null)}
-                  required
-                />
-              )}
-              <button type="submit" disabled={!selectedFlavorId || steps.length === 0}>
-                Generate captions
-              </button>
-            </form>
-            {apiResult && <pre>{apiResult}</pre>}
-            </section>
+            {activePanel === "steps" && (
+              <section className="card" id="steps">
+                <h2>🪜 Steps {selectedFlavor ? `for ${selectedFlavor.slug}` : ""}</h2>
+                {selectedFlavor ? (
+                  <>
+                    <form className="grid" onSubmit={createStep}>
+                      <input
+                        value={stepTitle}
+                        onChange={(e) => setStepTitle(e.target.value)}
+                        placeholder="Step title"
+                        required
+                      />
+                      <textarea
+                        value={stepInstruction}
+                        onChange={(e) => setStepInstruction(e.target.value)}
+                        placeholder="Step instruction"
+                        required
+                      />
+                      <button type="submit">Add step</button>
+                    </form>
+                    <div className="grid">
+                      {steps.map((step) => (
+                        <div key={step.id} className="card">
+                          <div className="row">
+                            <strong>
+                              #{step.position} - {step.title}
+                            </strong>
+                          </div>
+                          <p>{step.instruction}</p>
+                          <div className="row">
+                            <button type="button" onClick={() => moveStep(step, -1)}>
+                              Move up
+                            </button>
+                            <button type="button" onClick={() => moveStep(step, 1)}>
+                              Move down
+                            </button>
+                            <button type="button" onClick={() => updateStep(step)}>
+                              Edit
+                            </button>
+                            <button type="button" onClick={() => deleteStep(step)}>
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p>Select a flavor first.</p>
+                )}
+              </section>
+            )}
 
-            <section className="card">
-            <h2>Recent generated captions</h2>
-            <div className="grid scroll-area">
-              {runs.map((run) => (
-                <div key={run.id} className="card">
-                  <p className="small">{new Date(run.created_at).toLocaleString()}</p>
-                  <p>
-                    <strong>Image:</strong> {run.image_url}
-                  </p>
-                  <pre>{JSON.stringify(run.response_json, null, 2)}</pre>
+            {activePanel === "test" && (
+              <section className="card" id="test">
+                <h2>🧪 Test flavor via API</h2>
+                <p className="small">
+                  Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image {hasImageInput ? "✅" : "❌"}
+                </p>
+                <p className="small">Status: {status || "Idle"}</p>
+                {isGenerating && (
+                  <div className="generation-progress">
+                    <p className="small">
+                      {generationStage} ({generationProgress}%)
+                    </p>
+                    <progress value={generationProgress} max={100} />
+                  </div>
+                )}
+                <form className="grid" onSubmit={testFlavor}>
+                  <label className="row">
+                    <span>Upload image:</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleImageUpload(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  {imageUploadName && <p className="small">Using uploaded image: {imageUploadName}</p>}
+                  <input
+                    value={imageUrl}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    placeholder="Image URL from your test set (or upload a file above)"
+                    required
+                  />
+                  {imageUrl && (
+                    <Image
+                      src={imageUrl}
+                      alt="Test input preview"
+                      width={280}
+                      height={180}
+                      unoptimized
+                      style={{
+                        borderRadius: 8,
+                        objectFit: "cover",
+                        width: "280px",
+                        height: "180px",
+                      }}
+                    />
+                  )}
+                  <button type="submit" disabled={!canGenerate}>
+                    {isGenerating ? "Generating captions..." : "Generate captions"}
+                  </button>
+                </form>
+              </section>
+            )}
+
+            {activePanel === "runs" && (
+              <section className="card" id="runs">
+                <h2>📜 Recent generated captions</h2>
+                <div className="grid">
+                  {runs.map((run) => {
+                    const captions = extractCaptions(run.response_json);
+
+                    return (
+                      <div key={run.id} className="card">
+                        <p className="small">{formatTimestamp(run.created_datetime_utc)}</p>
+                        <p>
+                          <strong>Image:</strong> {run.image_url}
+                        </p>
+                        {captions.length > 0 ? (
+                          <ol>
+                            {captions.map((caption, index) => (
+                              <li key={`${run.id}-caption-${index}`}>{caption}</li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="small">No parsed captions available for this run.</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-            </section>
+              </section>
+            )}
           </div>
+
+          <aside className="card steps-key">
+            <h3>📂 Sections</h3>
+            <div className="tabs-list">
+              <button type="button" onClick={() => setActivePanel("create-flavor")} title="Create humor flavor">
+                ✨ Create
+              </button>
+              <button type="button" onClick={() => setActivePanel("flavors")} title="View/update/delete flavors">
+                🧠 Flavors
+              </button>
+              <button type="button" onClick={() => setActivePanel("steps")} title="Manage flavor steps">
+                🪜 Steps
+              </button>
+              <button type="button" onClick={() => setActivePanel("test")} title="Generate captions">
+                🧪 Test
+              </button>
+              <button type="button" onClick={() => setActivePanel("runs")} title="Generated caption history">
+                📜 Runs
+              </button>
+            </div>
+            <h3>🗺️ Steps key</h3>
+            <ol>
+              <li>Take in an image and output a description in text.</li>
+              <li>Take output from step 1 and output something funny about it.</li>
+              <li>Take output from step 2 and output five short, funny captions.</li>
+            </ol>
+          </aside>
         </div>
       )}
     </main>
