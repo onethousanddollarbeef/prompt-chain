@@ -15,6 +15,7 @@ type AdminPanel = "create-flavor" | "flavors" | "steps" | "test" | "runs";
 type ThemeMode = "light" | "dark" | "system";
 
 const API_BASE_URL = "https://api.almostcrackd.ai";
+const LOCAL_RUNS_STORAGE_KEY = "humor-flavor-local-runs";
 const SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -41,6 +42,7 @@ export default function Page() {
   const [newFlavorDescription, setNewFlavorDescription] = useState("");
   const [confirmCreateFlavor, setConfirmCreateFlavor] = useState(false);
   const [createFlavorNotice, setCreateFlavorNotice] = useState("");
+  const [flavorSearch, setFlavorSearch] = useState("");
 
   const [stepTitle, setStepTitle] = useState("");
   const [stepInstruction, setStepInstruction] = useState("");
@@ -59,6 +61,15 @@ export default function Page() {
     () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
     [flavors, selectedFlavorId],
   );
+  const filteredFlavors = useMemo(() => {
+    const query = flavorSearch.trim().toLowerCase();
+    if (!query) return flavors;
+    return flavors.filter((flavor) => {
+      const slugMatch = flavor.slug.toLowerCase().includes(query);
+      const descriptionMatch = (flavor.description ?? "").toLowerCase().includes(query);
+      return slugMatch || descriptionMatch;
+    });
+  }, [flavorSearch, flavors]);
 
   const hasImageInput = Boolean(selectedFile || imageUrl.trim());
   const canGenerate = Boolean(selectedFlavorId) && hasImageInput && !isGenerating;
@@ -166,6 +177,42 @@ export default function Page() {
     return timestamp.toLocaleString();
   }
 
+  function readLocalRunsMap(): Record<string, CaptionRun[]> {
+    try {
+      const raw = localStorage.getItem(LOCAL_RUNS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, CaptionRun[]>;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function getLocalRunsForFlavor(flavorId: string): CaptionRun[] {
+    const runMap = readLocalRunsMap();
+    return runMap[flavorId] ?? [];
+  }
+
+  function saveLocalRun(run: CaptionRun) {
+    const runMap = readLocalRunsMap();
+    const current = runMap[run.flavor_id] ?? [];
+    const deduped = [run, ...current.filter((existing) => existing.id !== run.id)].slice(0, 20);
+    runMap[run.flavor_id] = deduped;
+    localStorage.setItem(LOCAL_RUNS_STORAGE_KEY, JSON.stringify(runMap));
+  }
+
+  function mergeRunsByNewest(primaryRuns: CaptionRun[], fallbackRuns: CaptionRun[]) {
+    const byId = new Map<string, CaptionRun>();
+    for (const run of [...primaryRuns, ...fallbackRuns]) {
+      byId.set(run.id, run);
+    }
+    return [...byId.values()].sort((a, b) => {
+      const aTime = new Date(a.created_datetime_utc ?? 0).getTime();
+      const bTime = new Date(b.created_datetime_utc ?? 0).getTime();
+      return bTime - aTime;
+    });
+  }
+
   const loadSteps = useCallback(
     async (flavorId: string) => {
       if (!supabase) return;
@@ -210,7 +257,7 @@ export default function Page() {
           if (fallbackError) {
             if (fallbackError.message.includes("humor_flavor_runs")) {
               setRunsTableAvailable(false);
-              setRuns([]);
+              setRuns(getLocalRunsForFlavor(flavorId));
               return;
             }
             setStatus(fallbackError.message);
@@ -220,13 +267,14 @@ export default function Page() {
           const normalizedFallback = (fallbackData ?? []).map((row) =>
             normalizeRunRow(row as Record<string, unknown>),
           );
-          setRuns(normalizedFallback);
+          const localRuns = getLocalRunsForFlavor(flavorId);
+          setRuns(mergeRunsByNewest(normalizedFallback, localRuns));
           return;
         }
 
         if (error.message.includes("humor_flavor_runs")) {
           setRunsTableAvailable(false);
-          setRuns([]);
+          setRuns(getLocalRunsForFlavor(flavorId));
           return;
         }
         setStatus(error.message);
@@ -234,7 +282,8 @@ export default function Page() {
       }
 
       const normalized = (data ?? []).map((row) => normalizeRunRow(row as Record<string, unknown>));
-      setRuns(normalized);
+      const localRuns = getLocalRunsForFlavor(flavorId);
+      setRuns(mergeRunsByNewest(normalized, localRuns));
     },
     [supabase, runsTableAvailable],
   );
@@ -830,9 +879,13 @@ export default function Page() {
       resolvedImageId = registerPayload.imageId;
 
       const generateBodies = [
-        { imageId: resolvedImageId, humorFlavorId: selectedFlavor.id },
+        {
+          imageId: resolvedImageId,
+          humorFlavorId: selectedFlavor.id,
+          humor_flavor_id: selectedFlavor.id,
+          flavorId: selectedFlavor.id,
+        },
         { imageId: resolvedImageId, humor_flavor_id: selectedFlavor.id },
-        { imageId: resolvedImageId },
       ];
 
       let payload: unknown = null;
@@ -873,6 +926,7 @@ export default function Page() {
         created_datetime_utc: new Date().toISOString(),
         modified_datetime_utc: new Date().toISOString(),
       };
+      saveLocalRun(clientRun);
       setRuns((previous) => [clientRun, ...previous]);
 
       if (runsTableAvailable) {
@@ -1059,8 +1113,13 @@ export default function Page() {
             {activePanel === "flavors" && (
               <section className="card" id="flavors">
                 <h2>🧠 Humor flavors</h2>
+                <input
+                  value={flavorSearch}
+                  onChange={(e) => setFlavorSearch(e.target.value)}
+                  placeholder="Search flavors by slug or description"
+                />
                 <div className="grid">
-                  {flavors.map((flavor) => (
+                  {filteredFlavors.map((flavor) => (
                     <div key={flavor.id} className="card">
                       <div className="row">
                         <button type="button" onClick={() => void selectFlavor(flavor.id, "steps")}>
@@ -1088,6 +1147,9 @@ export default function Page() {
                       </div>
                     </div>
                   ))}
+                  {filteredFlavors.length === 0 && (
+                    <p className="small">No flavors matched your search.</p>
+                  )}
                 </div>
               </section>
             )}
