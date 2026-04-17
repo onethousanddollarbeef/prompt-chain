@@ -365,6 +365,74 @@ export default function Page() {
     await loadFlavors();
   }
 
+  async function duplicateFlavor(flavor: HumorFlavor) {
+    if (!supabase || !profile) return;
+
+    const suggestedSlug = `${flavor.slug}-copy-${Date.now().toString().slice(-5)}`;
+    const duplicateSlug = prompt("New slug for duplicated flavor", suggestedSlug)?.trim();
+    if (!duplicateSlug) return;
+
+    if (flavors.some((existingFlavor) => existingFlavor.slug === duplicateSlug)) {
+      setStatus(`Slug "${duplicateSlug}" already exists. Choose a unique slug.`);
+      return;
+    }
+
+    const { data: createdFlavor, error: createError } = await supabase
+      .from("humor_flavors")
+      .insert({
+        slug: duplicateSlug,
+        description: flavor.description,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      })
+      .select("id")
+      .single();
+
+    if (createError || !createdFlavor) {
+      setStatus(createError?.message ?? "Failed to duplicate flavor.");
+      return;
+    }
+
+    const { data: sourceSteps, error: sourceStepsError } = await supabase
+      .from("humor_flavor_steps")
+      .select("position, title, instruction")
+      .eq("flavor_id", flavor.id)
+      .order("position", { ascending: true });
+
+    if (sourceStepsError) {
+      setStatus(`Flavor duplicated, but source steps could not be loaded: ${sourceStepsError.message}`);
+      await loadFlavors();
+      return;
+    }
+
+    if ((sourceSteps ?? []).length > 0) {
+      const duplicatedSteps = (sourceSteps ?? []).map((step) => ({
+        flavor_id: createdFlavor.id,
+        position: step.position,
+        title: step.title,
+        instruction: step.instruction,
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      }));
+
+      const { error: duplicatedStepsError } = await supabase
+        .from("humor_flavor_steps")
+        .insert(duplicatedSteps);
+
+      if (duplicatedStepsError) {
+        setStatus(
+          `Flavor "${duplicateSlug}" was created, but step duplication failed: ${duplicatedStepsError.message}`,
+        );
+        await loadFlavors();
+        return;
+      }
+    }
+
+    await loadFlavors();
+    await selectFlavor(createdFlavor.id, "steps");
+    setStatus(`Flavor "${duplicateSlug}" duplicated with ${sourceSteps?.length ?? 0} step(s).`);
+  }
+
   async function createStep(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !profile || !selectedFlavorId || !stepTitle.trim() || !stepInstruction.trim()) {
@@ -776,6 +844,9 @@ export default function Page() {
                         </button>
                         <button type="button" onClick={() => updateFlavor(flavor)}>
                           Rename
+                        </button>
+                        <button type="button" onClick={() => duplicateFlavor(flavor)}>
+                          Duplicate
                         </button>
                         <button type="button" onClick={() => deleteFlavor(flavor)}>
                           Delete
