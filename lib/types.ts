@@ -20,6 +20,8 @@ export type HumorFlavorStep = {
   position: number;
   title: string;
   instruction: string;
+  llm_system_prompt?: string;
+  llm_user_prompt?: string;
   created_by_user_id?: string;
   modified_by_user_id?: string;
   created_datetime_utc?: string;
