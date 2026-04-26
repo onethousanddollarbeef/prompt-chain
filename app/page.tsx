@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import type { User } from "@supabase/supabase-js";
+import type { AuthChangeEvent, User } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import type {
   CaptionRun,
@@ -13,9 +13,12 @@ import type {
 
 type AdminPanel = "create-flavor" | "flavors" | "steps" | "test" | "runs";
 type ThemeMode = "light" | "dark" | "system";
+type StepPresetKey = "general" | "celebrity-recognition" | "workplace" | "sarcastic";
 
 const API_BASE_URL = "https://api.almostcrackd.ai";
 const LOCAL_RUNS_STORAGE_KEY = "humor-flavor-local-runs";
+const LOCAL_SELECTED_FLAVOR_KEY = "humor-flavor-selected-id";
+const LOCAL_ACTIVE_PANEL_KEY = "humor-flavor-active-panel";
 const SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -24,6 +27,28 @@ const SUPPORTED_IMAGE_TYPES = new Set([
   "image/gif",
   "image/heic",
 ]);
+
+const STEP_PRESETS: Record<StepPresetKey, { label: string; prompt: string }> = {
+  general: {
+    label: "General",
+    prompt: "Keep captions short, funny, and clear. Avoid repeating wording.",
+  },
+  "celebrity-recognition": {
+    label: "Celebrity Recognition",
+    prompt:
+      "Relate this to current pop culture and celebrity references where relevant. Keep it playful, specific, and meme-friendly.",
+  },
+  workplace: {
+    label: "Workplace Humor",
+    prompt:
+      "Frame captions like funny office moments, meeting chaos, deadlines, and professional awkwardness.",
+  },
+  sarcastic: {
+    label: "Sarcastic",
+    prompt:
+      "Use dry sarcasm and punchy one-liners while staying readable and not overly harsh.",
+  },
+};
 
 export default function Page() {
   const [user, setUser] = useState<User | null>(null);
@@ -46,6 +71,7 @@ export default function Page() {
 
   const [stepTitle, setStepTitle] = useState("");
   const [stepInstruction, setStepInstruction] = useState("");
+  const [stepType, setStepType] = useState<StepPresetKey>("general");
 
   const [imageUrl, setImageUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -130,6 +156,10 @@ export default function Page() {
       row.llm_system_prompt ??
       row.description ??
       "";
+    const derivedSystemPrompt =
+      row.llm_system_prompt ?? row.instruction ?? row.description ?? "";
+    const derivedUserPrompt =
+      row.llm_user_prompt ?? row.instruction ?? row.description ?? "";
 
     return {
       id: String(row.id ?? ""),
@@ -137,6 +167,8 @@ export default function Page() {
       position: Number(row.position ?? row.order_by ?? 0),
       title: String(derivedTitle),
       instruction: String(derivedInstruction),
+      llm_system_prompt: String(derivedSystemPrompt),
+      llm_user_prompt: String(derivedUserPrompt),
       created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
       modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? row.created_by ?? ""),
       created_datetime_utc: String(
@@ -226,19 +258,19 @@ export default function Page() {
       const { data, error } = await supabase
         .from("humor_flavor_steps")
         .select("*")
-        .eq("flavor_id", flavorId)
-        .order("position", { ascending: true });
+        .eq("humor_flavor_id", flavorId)
+        .order("order_by", { ascending: true });
 
       if (error) {
         if (
-          isColumnMissingError(error.message, "flavor_id") ||
-          isColumnMissingError(error.message, "position")
+          isColumnMissingError(error.message, "humor_flavor_id") ||
+          isColumnMissingError(error.message, "order_by")
         ) {
           const { data: fallbackData, error: fallbackError } = await supabase
             .from("humor_flavor_steps")
             .select("*")
-            .eq("humor_flavor_id", flavorId)
-            .order("order_by", { ascending: true });
+            .eq("flavor_id", flavorId)
+            .order("position", { ascending: true });
 
           if (fallbackError) {
             setStatus(fallbackError.message);
@@ -360,6 +392,15 @@ export default function Page() {
 
     setFlavors(normalized);
 
+    if (selectedFlavorId && !normalized.some((flavor) => flavor.id === selectedFlavorId)) {
+      setSelectedFlavorId(normalized[0]?.id ?? "");
+      if (normalized[0]) {
+        await loadSteps(normalized[0].id);
+        await loadRuns(normalized[0].id);
+      }
+      return;
+    }
+
     if (normalized[0] && !selectedFlavorId) {
       setSelectedFlavorId(normalized[0].id);
       await loadSteps(normalized[0].id);
@@ -393,7 +434,7 @@ export default function Page() {
       setProfile(profileData);
 
       if (profileData.is_superadmin || profileData.is_matrix_admin) {
-        setStatus("Authenticated as admin.");
+        setStatus("");
         await loadFlavors();
       } else {
         setStatus("Logged in, but account is not admin in profiles table.");
@@ -421,10 +462,10 @@ export default function Page() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, newSession) => {
       const nextUser = newSession?.user ?? null;
       setUser(nextUser);
-      if (event === 'TOKEN_REFRESHED') return;
+      if (event === "TOKEN_REFRESHED") return;
       void loadProfile(nextUser);
     });
 
@@ -433,6 +474,19 @@ export default function Page() {
   }, [supabase, loadProfile]);
 
   useEffect(() => {
+    const savedFlavorId = localStorage.getItem(LOCAL_SELECTED_FLAVOR_KEY) ?? "";
+    const savedPanel = localStorage.getItem(LOCAL_ACTIVE_PANEL_KEY) as AdminPanel | null;
+
+    if (savedFlavorId) {
+      setSelectedFlavorId(savedFlavorId);
+    }
+    if (
+      savedPanel &&
+      ["create-flavor", "flavors", "steps", "test", "runs"].includes(savedPanel)
+    ) {
+      setActivePanel(savedPanel);
+    }
+
     const savedTheme = (localStorage.getItem("theme-mode") as ThemeMode | null) ?? "system";
     setThemeMode(savedTheme);
     document.documentElement.dataset.theme = savedTheme;
@@ -443,6 +497,18 @@ export default function Page() {
     });
     return () => cleanup?.();
   }, [init]);
+
+  useEffect(() => {
+    if (selectedFlavorId) {
+      localStorage.setItem(LOCAL_SELECTED_FLAVOR_KEY, selectedFlavorId);
+      return;
+    }
+    localStorage.removeItem(LOCAL_SELECTED_FLAVOR_KEY);
+  }, [selectedFlavorId]);
+
+  useEffect(() => {
+    localStorage.setItem(LOCAL_ACTIVE_PANEL_KEY, activePanel);
+  }, [activePanel]);
 
   function updateTheme(nextMode: ThemeMode) {
     setThemeMode(nextMode);
@@ -475,6 +541,8 @@ export default function Page() {
     }
     setUser(null);
     setProfile(null);
+    setSelectedFlavorId("");
+    localStorage.removeItem(LOCAL_SELECTED_FLAVOR_KEY);
     setStatus("Logged out.");
   }
 
@@ -488,6 +556,8 @@ export default function Page() {
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !profile || !newFlavorSlug.trim()) return;
+
+    setCreateFlavorNotice("");
 
     setCreateFlavorNotice("");
 
@@ -632,30 +702,29 @@ export default function Page() {
       return;
     }
 
-    let { data: sourceSteps, error: sourceStepsError } = await supabase
+    let sourceStepsRaw: Record<string, unknown>[] = [];
+
+    const { data: sourceStepsData, error: sourceStepsInitialError } = await supabase
       .from("humor_flavor_steps")
-      .select("position, title, instruction")
-      .eq("flavor_id", flavor.id)
-      .order("position", { ascending: true });
+      .select("*")
+      .eq("humor_flavor_id", flavor.id)
+      .order("order_by", { ascending: true });
+
+    sourceStepsRaw = (sourceStepsData ?? []) as Record<string, unknown>[];
+    let sourceStepsError = sourceStepsInitialError;
 
     if (
       sourceStepsError &&
-      (isColumnMissingError(sourceStepsError.message, "flavor_id") ||
-        isColumnMissingError(sourceStepsError.message, "position") ||
-        isColumnMissingError(sourceStepsError.message, "title") ||
-        isColumnMissingError(sourceStepsError.message, "instruction"))
+      (isColumnMissingError(sourceStepsError.message, "humor_flavor_id") ||
+        isColumnMissingError(sourceStepsError.message, "order_by"))
     ) {
       const fallbackResult = await supabase
         .from("humor_flavor_steps")
-        .select("order_by, description, llm_user_prompt, llm_system_prompt")
-        .eq("humor_flavor_id", flavor.id)
-        .order("order_by", { ascending: true });
+        .select("*")
+        .eq("flavor_id", flavor.id)
+        .order("position", { ascending: true });
       sourceStepsError = fallbackResult.error;
-      sourceSteps = (fallbackResult.data ?? []).map((step) => ({
-        position: Number(step.order_by ?? 0),
-        title: String(step.description ?? step.llm_system_prompt ?? "Untitled step"),
-        instruction: String(step.llm_user_prompt ?? step.llm_system_prompt ?? ""),
-      }));
+      sourceStepsRaw = (fallbackResult.data ?? []) as Record<string, unknown>[];
     }
 
     if (sourceStepsError) {
@@ -664,54 +733,34 @@ export default function Page() {
       return;
     }
 
-    if ((sourceSteps ?? []).length > 0) {
-      const duplicatedSteps = (sourceSteps ?? []).map((step) => ({
-        flavor_id: createdFlavor.id,
-        position: step.position,
-        title: step.title,
-        instruction: step.instruction,
-        created_by_user_id: profile.id,
-        modified_by_user_id: profile.id,
-      }));
+    const normalizedSourceSteps = sourceStepsRaw.map((step) => normalizeStepRow(step));
 
-      let { error: duplicatedStepsError } = await supabase
+    if (sourceStepsRaw.length > 0) {
+      const duplicatedSteps = sourceStepsRaw.map((step) => {
+        const cloned = { ...step };
+        delete cloned.id;
+        delete cloned.created_datetime_utc;
+        delete cloned.modified_datetime_utc;
+        delete cloned.created_at;
+        delete cloned.modified_at;
+
+        if ("humor_flavor_id" in cloned || !("flavor_id" in cloned)) {
+          cloned.humor_flavor_id = createdFlavor.id;
+          delete cloned.flavor_id;
+        } else {
+          cloned.flavor_id = createdFlavor.id;
+        }
+
+        if ("created_by_user_id" in cloned) cloned.created_by_user_id = profile.id;
+        if ("modified_by_user_id" in cloned) cloned.modified_by_user_id = profile.id;
+        if ("created_by" in cloned) cloned.created_by = profile.id;
+
+        return cloned;
+      });
+
+      const { error: duplicatedStepsError } = await supabase
         .from("humor_flavor_steps")
         .insert(duplicatedSteps);
-
-      if (
-        duplicatedStepsError &&
-        (isColumnMissingError(duplicatedStepsError.message, "created_by_user_id") ||
-          isColumnMissingError(duplicatedStepsError.message, "modified_by_user_id"))
-      ) {
-        const fallbackSteps = (sourceSteps ?? []).map((step) => ({
-          flavor_id: createdFlavor.id,
-          position: step.position,
-          title: step.title,
-          instruction: step.instruction,
-        }));
-        const fallbackResult = await supabase.from("humor_flavor_steps").insert(fallbackSteps);
-        duplicatedStepsError = fallbackResult.error;
-      }
-
-      if (
-        duplicatedStepsError &&
-        (isColumnMissingError(duplicatedStepsError.message, "flavor_id") ||
-          isColumnMissingError(duplicatedStepsError.message, "position") ||
-          isColumnMissingError(duplicatedStepsError.message, "title") ||
-          isColumnMissingError(duplicatedStepsError.message, "instruction"))
-      ) {
-        const newestSchemaSteps = (sourceSteps ?? []).map((step) => ({
-          humor_flavor_id: createdFlavor.id,
-          order_by: step.position,
-          description: step.title,
-          llm_user_prompt: step.instruction,
-          llm_system_prompt: step.instruction,
-          created_by_user_id: profile.id,
-          modified_by_user_id: profile.id,
-        }));
-        const fallbackResult = await supabase.from("humor_flavor_steps").insert(newestSchemaSteps);
-        duplicatedStepsError = fallbackResult.error;
-      }
 
       if (duplicatedStepsError) {
         setStatus(
@@ -724,7 +773,7 @@ export default function Page() {
 
     await loadFlavors();
     await selectFlavor(createdFlavor.id, "steps");
-    setStatus(`Flavor "${duplicateSlug}" duplicated with ${sourceSteps?.length ?? 0} step(s).`);
+    setStatus(`Flavor "${duplicateSlug}" duplicated with ${normalizedSourceSteps.length} step(s).`);
   }
 
   async function createStep(e: FormEvent) {
@@ -734,13 +783,67 @@ export default function Page() {
     }
 
     const nextPos = steps.length ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
+    const requiredStepFields: Record<string, unknown> = {};
+
+    const { data: templateStep } = await supabase
+      .from("humor_flavor_steps")
+      .select(
+        "llm_input_type_id, llm_output_type_id, llm_model_id, humor_flavor_step_type_id, llm_temperature",
+      )
+      .eq("humor_flavor_id", selectedFlavorId)
+      .order("order_by", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (templateStep) {
+      requiredStepFields.llm_input_type_id = templateStep.llm_input_type_id;
+      requiredStepFields.llm_output_type_id = templateStep.llm_output_type_id;
+      requiredStepFields.llm_model_id = templateStep.llm_model_id;
+      requiredStepFields.humor_flavor_step_type_id = templateStep.humor_flavor_step_type_id;
+      requiredStepFields.llm_temperature = templateStep.llm_temperature ?? 0.7;
+    } else {
+      const [
+        { data: inputType },
+        { data: outputType },
+        { data: modelType },
+        { data: stepType },
+      ] = await Promise.all([
+        supabase.from("llm_input_types").select("id").limit(1).maybeSingle(),
+        supabase.from("llm_output_types").select("id").limit(1).maybeSingle(),
+        supabase.from("llm_models").select("id").limit(1).maybeSingle(),
+        supabase.from("humor_flavor_step_types").select("id").limit(1).maybeSingle(),
+      ]);
+
+      requiredStepFields.llm_input_type_id = inputType?.id ?? null;
+      requiredStepFields.llm_output_type_id = outputType?.id ?? null;
+      requiredStepFields.llm_model_id = modelType?.id ?? null;
+      requiredStepFields.humor_flavor_step_type_id = stepType?.id ?? null;
+      requiredStepFields.llm_temperature = 0.7;
+    }
+
+    const missingRequiredReference = [
+      "llm_input_type_id",
+      "llm_output_type_id",
+      "llm_model_id",
+      "humor_flavor_step_type_id",
+    ].some((field) => requiredStepFields[field] == null);
+
+    if (missingRequiredReference) {
+      setStatus(
+        "Could not create step: missing required LLM type/model references in Supabase. Add at least one row in llm_input_types, llm_output_types, llm_models, and humor_flavor_step_types.",
+      );
+      return;
+    }
+
     let { error } = await supabase.from("humor_flavor_steps").insert({
-      flavor_id: selectedFlavorId,
-      position: nextPos,
-      title: stepTitle.trim(),
-      instruction: stepInstruction.trim(),
+      humor_flavor_id: selectedFlavorId,
+      order_by: nextPos,
+      description: stepTitle.trim(),
+      llm_user_prompt: stepInstruction.trim(),
+      llm_system_prompt: stepInstruction.trim(),
       created_by_user_id: profile.id,
       modified_by_user_id: profile.id,
+      ...requiredStepFields,
     });
 
     if (
@@ -749,29 +852,27 @@ export default function Page() {
         isColumnMissingError(error.message, "modified_by_user_id"))
     ) {
       const fallbackResult = await supabase.from("humor_flavor_steps").insert({
-        flavor_id: selectedFlavorId,
-        position: nextPos,
-        title: stepTitle.trim(),
-        instruction: stepInstruction.trim(),
+        humor_flavor_id: selectedFlavorId,
+        order_by: nextPos,
+        description: stepTitle.trim(),
+        llm_user_prompt: stepInstruction.trim(),
+        llm_system_prompt: stepInstruction.trim(),
+        ...requiredStepFields,
       });
       error = fallbackResult.error;
     }
 
     if (
       error &&
-      (isColumnMissingError(error.message, "flavor_id") ||
-        isColumnMissingError(error.message, "position") ||
-        isColumnMissingError(error.message, "title") ||
-        isColumnMissingError(error.message, "instruction"))
+      (isColumnMissingError(error.message, "humor_flavor_id") ||
+        isColumnMissingError(error.message, "order_by") ||
+        isColumnMissingError(error.message, "description"))
     ) {
       const fallbackResult = await supabase.from("humor_flavor_steps").insert({
-        humor_flavor_id: selectedFlavorId,
-        order_by: nextPos,
-        description: stepTitle.trim(),
-        llm_user_prompt: stepInstruction.trim(),
-        llm_system_prompt: stepInstruction.trim(),
-        created_by_user_id: profile.id,
-        modified_by_user_id: profile.id,
+        flavor_id: selectedFlavorId,
+        position: nextPos,
+        title: stepTitle.trim(),
+        instruction: stepInstruction.trim(),
       });
       error = fallbackResult.error;
     }
@@ -796,29 +897,37 @@ export default function Page() {
 
     let { error } = await supabase
       .from("humor_flavor_steps")
-      .update({ title, instruction, modified_by_user_id: profile.id })
+      .update({
+        description: title,
+        llm_user_prompt: instruction,
+        llm_system_prompt: instruction,
+        modified_by_user_id: profile.id,
+      })
       .eq("id", step.id);
 
     if (error && isColumnMissingError(error.message, "modified_by_user_id")) {
-      const fallbackResult = await supabase
-        .from("humor_flavor_steps")
-        .update({ title, instruction })
-        .eq("id", step.id);
-      error = fallbackResult.error;
-    }
-
-    if (
-      error &&
-      (isColumnMissingError(error.message, "title") ||
-        isColumnMissingError(error.message, "instruction"))
-    ) {
       const fallbackResult = await supabase
         .from("humor_flavor_steps")
         .update({
           description: title,
           llm_user_prompt: instruction,
           llm_system_prompt: instruction,
-          modified_by_user_id: profile.id,
+        })
+        .eq("id", step.id);
+      error = fallbackResult.error;
+    }
+
+    if (
+      error &&
+      (isColumnMissingError(error.message, "description") ||
+        isColumnMissingError(error.message, "llm_user_prompt") ||
+        isColumnMissingError(error.message, "llm_system_prompt"))
+    ) {
+      const fallbackResult = await supabase
+        .from("humor_flavor_steps")
+        .update({
+          title,
+          instruction,
         })
         .eq("id", step.id);
       error = fallbackResult.error;
@@ -865,20 +974,20 @@ export default function Page() {
     for (const update of updates) {
       let { error } = await supabase
         .from("humor_flavor_steps")
-        .update({ position: update.position, modified_by_user_id: profile.id })
+        .update({ order_by: update.position, modified_by_user_id: profile.id })
         .eq("id", update.id);
 
       if (error && isColumnMissingError(error.message, "modified_by_user_id")) {
         const fallbackResult = await supabase
           .from("humor_flavor_steps")
-          .update({ position: update.position })
+          .update({ order_by: update.position })
           .eq("id", update.id);
         error = fallbackResult.error;
       }
-      if (error && isColumnMissingError(error.message, "position")) {
+      if (error && isColumnMissingError(error.message, "order_by")) {
         const fallbackResult = await supabase
           .from("humor_flavor_steps")
-          .update({ order_by: update.position, modified_by_user_id: profile.id })
+          .update({ position: update.position, modified_by_user_id: profile.id })
           .eq("id", update.id);
         error = fallbackResult.error;
       }
@@ -1185,7 +1294,7 @@ export default function Page() {
       </div>
 
       <h1>Humor Flavor Prompt Chain</h1>
-      <p className="small">{status}</p>
+      {status && <p className="small">{status}</p>}
 
       <div className="row card">
         <strong>{user ? `Logged in: ${user.email ?? user.id}` : "Not logged in"}</strong>
@@ -1293,6 +1402,27 @@ export default function Page() {
                 {selectedFlavor ? (
                   <>
                     <form className="grid" onSubmit={createStep}>
+                      <label className="grid">
+                        <span className="small">Step type</span>
+                        <select
+                          value={stepType}
+                          onChange={(e) => {
+                            const nextStepType = e.target.value as StepPresetKey;
+                            setStepType(nextStepType);
+                            setStepInstruction(STEP_PRESETS[nextStepType].prompt);
+                          }}
+                        >
+                          {(Object.keys(STEP_PRESETS) as StepPresetKey[]).map((presetKey) => (
+                            <option key={presetKey} value={presetKey}>
+                              {STEP_PRESETS[presetKey].label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="card">
+                        <strong>{STEP_PRESETS[stepType].label}</strong>
+                        <p className="small">{STEP_PRESETS[stepType].prompt}</p>
+                      </div>
                       <input
                         value={stepTitle}
                         onChange={(e) => setStepTitle(e.target.value)}
@@ -1316,6 +1446,12 @@ export default function Page() {
                             </strong>
                           </div>
                           <p>{step.instruction}</p>
+                          <p className="small">
+                            <strong>LLM system prompt:</strong> {step.llm_system_prompt || "—"}
+                          </p>
+                          <p className="small">
+                            <strong>LLM user prompt:</strong> {step.llm_user_prompt || "—"}
+                          </p>
                           <div className="row">
                             <button type="button" onClick={() => moveStep(step, -1)}>
                               Move up
@@ -1342,11 +1478,7 @@ export default function Page() {
 
             {activePanel === "test" && (
               <section className="card" id="test">
-                <h2>🧪 Test flavor via API</h2>
-                <p className="small">
-                  Ready checks: flavor {selectedFlavorId ? "✅" : "❌"} · image {hasImageInput ? "✅" : "❌"}
-                </p>
-                <p className="small">Status: {status || "Idle"}</p>
+                <h2>🧪 Test flavor via API {selectedFlavor ? `— ${selectedFlavor.slug}` : ""}</h2>
                 {isGenerating && (
                   <div className="generation-progress">
                     <p className="small">
