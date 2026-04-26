@@ -130,6 +130,10 @@ export default function Page() {
       row.llm_system_prompt ??
       row.description ??
       "";
+    const derivedSystemPrompt =
+      row.llm_system_prompt ?? row.instruction ?? row.description ?? "";
+    const derivedUserPrompt =
+      row.llm_user_prompt ?? row.instruction ?? row.description ?? "";
 
     return {
       id: String(row.id ?? ""),
@@ -137,6 +141,8 @@ export default function Page() {
       position: Number(row.position ?? row.order_by ?? 0),
       title: String(derivedTitle),
       instruction: String(derivedInstruction),
+      llm_system_prompt: String(derivedSystemPrompt),
+      llm_user_prompt: String(derivedUserPrompt),
       created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
       modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? row.created_by ?? ""),
       created_datetime_utc: String(
@@ -226,19 +232,19 @@ export default function Page() {
       const { data, error } = await supabase
         .from("humor_flavor_steps")
         .select("*")
-        .eq("flavor_id", flavorId)
-        .order("position", { ascending: true });
+        .eq("humor_flavor_id", flavorId)
+        .order("order_by", { ascending: true });
 
       if (error) {
         if (
-          isColumnMissingError(error.message, "flavor_id") ||
-          isColumnMissingError(error.message, "position")
+          isColumnMissingError(error.message, "humor_flavor_id") ||
+          isColumnMissingError(error.message, "order_by")
         ) {
           const { data: fallbackData, error: fallbackError } = await supabase
             .from("humor_flavor_steps")
             .select("*")
-            .eq("humor_flavor_id", flavorId)
-            .order("order_by", { ascending: true });
+            .eq("flavor_id", flavorId)
+            .order("position", { ascending: true });
 
           if (fallbackError) {
             setStatus(fallbackError.message);
@@ -493,6 +499,8 @@ export default function Page() {
 
     setCreateFlavorNotice("");
 
+    setCreateFlavorNotice("");
+
     let { error } = await supabase.from("humor_flavors").insert({
       slug: newFlavorName.trim(),
       description: newFlavorDescription.trim() || null,
@@ -632,29 +640,36 @@ export default function Page() {
       return;
     }
 
-    let { data: sourceSteps, error: sourceStepsError } = await supabase
+    let sourceSteps: Array<{ position: number; title: string; instruction: string }> = [];
+
+    const { data: sourceStepsData, error: sourceStepsInitialError } = await supabase
       .from("humor_flavor_steps")
-      .select("position, title, instruction")
-      .eq("flavor_id", flavor.id)
-      .order("position", { ascending: true });
+      .select("order_by, description, llm_user_prompt, llm_system_prompt")
+      .eq("humor_flavor_id", flavor.id)
+      .order("order_by", { ascending: true });
+
+    sourceSteps = (sourceStepsData ?? []).map((step) => ({
+      position: Number(step.order_by ?? 0),
+      title: String(step.description ?? step.llm_system_prompt ?? "Untitled step"),
+      instruction: String(step.llm_user_prompt ?? step.llm_system_prompt ?? ""),
+    }));
+    let sourceStepsError = sourceStepsInitialError;
 
     if (
       sourceStepsError &&
-      (isColumnMissingError(sourceStepsError.message, "flavor_id") ||
-        isColumnMissingError(sourceStepsError.message, "position") ||
-        isColumnMissingError(sourceStepsError.message, "title") ||
-        isColumnMissingError(sourceStepsError.message, "instruction"))
+      (isColumnMissingError(sourceStepsError.message, "humor_flavor_id") ||
+        isColumnMissingError(sourceStepsError.message, "order_by"))
     ) {
       const fallbackResult = await supabase
         .from("humor_flavor_steps")
-        .select("order_by, description, llm_user_prompt, llm_system_prompt")
-        .eq("humor_flavor_id", flavor.id)
-        .order("order_by", { ascending: true });
+        .select("position, title, instruction")
+        .eq("flavor_id", flavor.id)
+        .order("position", { ascending: true });
       sourceStepsError = fallbackResult.error;
       sourceSteps = (fallbackResult.data ?? []).map((step) => ({
-        position: Number(step.order_by ?? 0),
-        title: String(step.description ?? step.llm_system_prompt ?? "Untitled step"),
-        instruction: String(step.llm_user_prompt ?? step.llm_system_prompt ?? ""),
+        position: Number(step.position ?? 0),
+        title: String(step.title ?? "Untitled step"),
+        instruction: String(step.instruction ?? ""),
       }));
     }
 
@@ -666,10 +681,11 @@ export default function Page() {
 
     if ((sourceSteps ?? []).length > 0) {
       const duplicatedSteps = (sourceSteps ?? []).map((step) => ({
-        flavor_id: createdFlavor.id,
-        position: step.position,
-        title: step.title,
-        instruction: step.instruction,
+        humor_flavor_id: createdFlavor.id,
+        order_by: step.position,
+        description: step.title,
+        llm_user_prompt: step.instruction,
+        llm_system_prompt: step.instruction,
         created_by_user_id: profile.id,
         modified_by_user_id: profile.id,
       }));
@@ -680,8 +696,9 @@ export default function Page() {
 
       if (
         duplicatedStepsError &&
-        (isColumnMissingError(duplicatedStepsError.message, "created_by_user_id") ||
-          isColumnMissingError(duplicatedStepsError.message, "modified_by_user_id"))
+        (isColumnMissingError(duplicatedStepsError.message, "humor_flavor_id") ||
+          isColumnMissingError(duplicatedStepsError.message, "order_by") ||
+          isColumnMissingError(duplicatedStepsError.message, "description"))
       ) {
         const fallbackSteps = (sourceSteps ?? []).map((step) => ({
           flavor_id: createdFlavor.id,
@@ -690,26 +707,6 @@ export default function Page() {
           instruction: step.instruction,
         }));
         const fallbackResult = await supabase.from("humor_flavor_steps").insert(fallbackSteps);
-        duplicatedStepsError = fallbackResult.error;
-      }
-
-      if (
-        duplicatedStepsError &&
-        (isColumnMissingError(duplicatedStepsError.message, "flavor_id") ||
-          isColumnMissingError(duplicatedStepsError.message, "position") ||
-          isColumnMissingError(duplicatedStepsError.message, "title") ||
-          isColumnMissingError(duplicatedStepsError.message, "instruction"))
-      ) {
-        const newestSchemaSteps = (sourceSteps ?? []).map((step) => ({
-          humor_flavor_id: createdFlavor.id,
-          order_by: step.position,
-          description: step.title,
-          llm_user_prompt: step.instruction,
-          llm_system_prompt: step.instruction,
-          created_by_user_id: profile.id,
-          modified_by_user_id: profile.id,
-        }));
-        const fallbackResult = await supabase.from("humor_flavor_steps").insert(newestSchemaSteps);
         duplicatedStepsError = fallbackResult.error;
       }
 
@@ -735,10 +732,11 @@ export default function Page() {
 
     const nextPos = steps.length ? Math.max(...steps.map((s) => s.position)) + 1 : 1;
     let { error } = await supabase.from("humor_flavor_steps").insert({
-      flavor_id: selectedFlavorId,
-      position: nextPos,
-      title: stepTitle.trim(),
-      instruction: stepInstruction.trim(),
+      humor_flavor_id: selectedFlavorId,
+      order_by: nextPos,
+      description: stepTitle.trim(),
+      llm_user_prompt: stepInstruction.trim(),
+      llm_system_prompt: stepInstruction.trim(),
       created_by_user_id: profile.id,
       modified_by_user_id: profile.id,
     });
@@ -749,29 +747,26 @@ export default function Page() {
         isColumnMissingError(error.message, "modified_by_user_id"))
     ) {
       const fallbackResult = await supabase.from("humor_flavor_steps").insert({
-        flavor_id: selectedFlavorId,
-        position: nextPos,
-        title: stepTitle.trim(),
-        instruction: stepInstruction.trim(),
+        humor_flavor_id: selectedFlavorId,
+        order_by: nextPos,
+        description: stepTitle.trim(),
+        llm_user_prompt: stepInstruction.trim(),
+        llm_system_prompt: stepInstruction.trim(),
       });
       error = fallbackResult.error;
     }
 
     if (
       error &&
-      (isColumnMissingError(error.message, "flavor_id") ||
-        isColumnMissingError(error.message, "position") ||
-        isColumnMissingError(error.message, "title") ||
-        isColumnMissingError(error.message, "instruction"))
+      (isColumnMissingError(error.message, "humor_flavor_id") ||
+        isColumnMissingError(error.message, "order_by") ||
+        isColumnMissingError(error.message, "description"))
     ) {
       const fallbackResult = await supabase.from("humor_flavor_steps").insert({
-        humor_flavor_id: selectedFlavorId,
-        order_by: nextPos,
-        description: stepTitle.trim(),
-        llm_user_prompt: stepInstruction.trim(),
-        llm_system_prompt: stepInstruction.trim(),
-        created_by_user_id: profile.id,
-        modified_by_user_id: profile.id,
+        flavor_id: selectedFlavorId,
+        position: nextPos,
+        title: stepTitle.trim(),
+        instruction: stepInstruction.trim(),
       });
       error = fallbackResult.error;
     }
@@ -796,29 +791,37 @@ export default function Page() {
 
     let { error } = await supabase
       .from("humor_flavor_steps")
-      .update({ title, instruction, modified_by_user_id: profile.id })
+      .update({
+        description: title,
+        llm_user_prompt: instruction,
+        llm_system_prompt: instruction,
+        modified_by_user_id: profile.id,
+      })
       .eq("id", step.id);
 
     if (error && isColumnMissingError(error.message, "modified_by_user_id")) {
-      const fallbackResult = await supabase
-        .from("humor_flavor_steps")
-        .update({ title, instruction })
-        .eq("id", step.id);
-      error = fallbackResult.error;
-    }
-
-    if (
-      error &&
-      (isColumnMissingError(error.message, "title") ||
-        isColumnMissingError(error.message, "instruction"))
-    ) {
       const fallbackResult = await supabase
         .from("humor_flavor_steps")
         .update({
           description: title,
           llm_user_prompt: instruction,
           llm_system_prompt: instruction,
-          modified_by_user_id: profile.id,
+        })
+        .eq("id", step.id);
+      error = fallbackResult.error;
+    }
+
+    if (
+      error &&
+      (isColumnMissingError(error.message, "description") ||
+        isColumnMissingError(error.message, "llm_user_prompt") ||
+        isColumnMissingError(error.message, "llm_system_prompt"))
+    ) {
+      const fallbackResult = await supabase
+        .from("humor_flavor_steps")
+        .update({
+          title,
+          instruction,
         })
         .eq("id", step.id);
       error = fallbackResult.error;
@@ -865,20 +868,20 @@ export default function Page() {
     for (const update of updates) {
       let { error } = await supabase
         .from("humor_flavor_steps")
-        .update({ position: update.position, modified_by_user_id: profile.id })
+        .update({ order_by: update.position, modified_by_user_id: profile.id })
         .eq("id", update.id);
 
       if (error && isColumnMissingError(error.message, "modified_by_user_id")) {
         const fallbackResult = await supabase
           .from("humor_flavor_steps")
-          .update({ position: update.position })
+          .update({ order_by: update.position })
           .eq("id", update.id);
         error = fallbackResult.error;
       }
-      if (error && isColumnMissingError(error.message, "position")) {
+      if (error && isColumnMissingError(error.message, "order_by")) {
         const fallbackResult = await supabase
           .from("humor_flavor_steps")
-          .update({ order_by: update.position, modified_by_user_id: profile.id })
+          .update({ position: update.position, modified_by_user_id: profile.id })
           .eq("id", update.id);
         error = fallbackResult.error;
       }
@@ -1316,6 +1319,12 @@ export default function Page() {
                             </strong>
                           </div>
                           <p>{step.instruction}</p>
+                          <p className="small">
+                            <strong>LLM system prompt:</strong> {step.llm_system_prompt || "—"}
+                          </p>
+                          <p className="small">
+                            <strong>LLM user prompt:</strong> {step.llm_user_prompt || "—"}
+                          </p>
                           <div className="row">
                             <button type="button" onClick={() => moveStep(step, -1)}>
                               Move up
