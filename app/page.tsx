@@ -50,18 +50,15 @@ export default function Page() {
   const [imageUrl, setImageUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imageUploadName, setImageUploadName] = useState("");
+  const [captionCount, setCaptionCount] = useState(5);
   const [status, setStatus] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStage, setGenerationStage] = useState("");
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
-  const envInfo = useMemo(() => getSupabaseEnvInfo(), []);
 
-  const selectedFlavor = useMemo(
-    () => flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null,
-    [flavors, selectedFlavorId],
-  );
+  const selectedFlavor = flavors.find((flavor) => flavor.id === selectedFlavorId) ?? null;
   const filteredFlavors = useMemo(() => {
     const query = flavorSearch.trim().toLowerCase();
     if (!query) return flavors;
@@ -121,12 +118,25 @@ export default function Page() {
   }
 
   function normalizeStepRow(row: Record<string, unknown>): HumorFlavorStep {
+    const derivedTitle =
+      row.title ??
+      row.description ??
+      row.llm_system_prompt ??
+      row.llm_user_prompt ??
+      "Untitled step";
+    const derivedInstruction =
+      row.instruction ??
+      row.llm_user_prompt ??
+      row.llm_system_prompt ??
+      row.description ??
+      "";
+
     return {
       id: String(row.id ?? ""),
-      flavor_id: String(row.flavor_id ?? ""),
-      position: Number(row.position ?? 0),
-      title: String(row.title ?? ""),
-      instruction: String(row.instruction ?? ""),
+      flavor_id: String(row.flavor_id ?? row.humor_flavor_id ?? ""),
+      position: Number(row.position ?? row.order_by ?? 0),
+      title: String(derivedTitle),
+      instruction: String(derivedInstruction),
       created_by_user_id: String(row.created_by_user_id ?? row.created_by ?? ""),
       modified_by_user_id: String(row.modified_by_user_id ?? row.modified_by ?? row.created_by ?? ""),
       created_datetime_utc: String(
@@ -189,11 +199,6 @@ export default function Page() {
     }
   }
 
-  function getLocalRunsForFlavor(flavorId: string): CaptionRun[] {
-    const runMap = readLocalRunsMap();
-    return runMap[flavorId] ?? [];
-  }
-
   function saveLocalRun(run: CaptionRun) {
     const runMap = readLocalRunsMap();
     const current = runMap[run.flavor_id] ?? [];
@@ -214,10 +219,6 @@ export default function Page() {
     });
   }
 
-  useEffect(() => {
-    selectedFlavorIdRef.current = selectedFlavorId;
-  }, [selectedFlavorId]);
-
   const loadSteps = useCallback(
     async (flavorId: string) => {
       if (!supabase) return;
@@ -229,6 +230,28 @@ export default function Page() {
         .order("position", { ascending: true });
 
       if (error) {
+        if (
+          isColumnMissingError(error.message, "flavor_id") ||
+          isColumnMissingError(error.message, "position")
+        ) {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from("humor_flavor_steps")
+            .select("*")
+            .eq("humor_flavor_id", flavorId)
+            .order("order_by", { ascending: true });
+
+          if (fallbackError) {
+            setStatus(fallbackError.message);
+            return;
+          }
+
+          const normalizedFallback = (fallbackData ?? []).map((row) =>
+            normalizeStepRow(row as Record<string, unknown>),
+          );
+          setSteps(normalizedFallback);
+          return;
+        }
+
         setStatus(error.message);
         return;
       }
@@ -262,7 +285,7 @@ export default function Page() {
           if (fallbackError) {
             if (fallbackError.message.includes("humor_flavor_runs")) {
               setRunsTableAvailable(false);
-              setRuns(getLocalRunsForFlavor(flavorId));
+              setRuns(readLocalRunsMap()[flavorId] ?? []);
               return;
             }
             setStatus(fallbackError.message);
@@ -272,14 +295,14 @@ export default function Page() {
           const normalizedFallback = (fallbackData ?? []).map((row) =>
             normalizeRunRow(row as Record<string, unknown>),
           );
-          const localRuns = getLocalRunsForFlavor(flavorId);
+          const localRuns = readLocalRunsMap()[flavorId] ?? [];
           setRuns(mergeRunsByNewest(normalizedFallback, localRuns));
           return;
         }
 
         if (error.message.includes("humor_flavor_runs")) {
           setRunsTableAvailable(false);
-          setRuns(getLocalRunsForFlavor(flavorId));
+          setRuns(readLocalRunsMap()[flavorId] ?? []);
           return;
         }
         setStatus(error.message);
@@ -287,7 +310,7 @@ export default function Page() {
       }
 
       const normalized = (data ?? []).map((row) => normalizeRunRow(row as Record<string, unknown>));
-      const localRuns = getLocalRunsForFlavor(flavorId);
+      const localRuns = readLocalRunsMap()[flavorId] ?? [];
       setRuns(mergeRunsByNewest(normalized, localRuns));
     },
     [supabase, runsTableAvailable],
@@ -462,57 +485,11 @@ export default function Page() {
     if (panel) setActivePanel(panel);
   }
 
-
-  async function quickGenerateCaptions(e: FormEvent) {
-    e.preventDefault();
-    if (!imageUrl.trim()) {
-      setStatus('Please provide an image URL.');
-      return;
-    }
-
-    const res = await fetch('/api/generate-captions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        flavor: {
-          id: 'quick-start-flavor',
-          name: 'Quick Start Flavor',
-          description: 'Fallback local mode without Supabase'
-        },
-        steps: [
-          {
-            position: 1,
-            title: 'Describe image',
-            instruction: 'Describe what is in the image in plain text.'
-          },
-          {
-            position: 2,
-            title: 'Find humor angle',
-            instruction: 'Take the description and make a funny observation.'
-          },
-          {
-            position: 3,
-            title: 'Generate captions',
-            instruction: 'Produce five short funny captions.'
-          }
-        ],
-        imageUrl: imageUrl.trim()
-      })
-    });
-
-    const payload = (await res.json()) as { error?: string; data?: unknown };
-    if (!res.ok) {
-      setStatus(payload.error ?? 'Generation failed');
-      return;
-    }
-
-    setApiResult(JSON.stringify(payload.data, null, 2));
-    setStatus('Quick caption generation complete.');
-  }
-
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !profile || !newFlavorSlug.trim()) return;
+
+    setCreateFlavorNotice("");
 
     setCreateFlavorNotice("");
 
@@ -655,11 +632,31 @@ export default function Page() {
       return;
     }
 
-    const { data: sourceSteps, error: sourceStepsError } = await supabase
+    let { data: sourceSteps, error: sourceStepsError } = await supabase
       .from("humor_flavor_steps")
       .select("position, title, instruction")
       .eq("flavor_id", flavor.id)
       .order("position", { ascending: true });
+
+    if (
+      sourceStepsError &&
+      (isColumnMissingError(sourceStepsError.message, "flavor_id") ||
+        isColumnMissingError(sourceStepsError.message, "position") ||
+        isColumnMissingError(sourceStepsError.message, "title") ||
+        isColumnMissingError(sourceStepsError.message, "instruction"))
+    ) {
+      const fallbackResult = await supabase
+        .from("humor_flavor_steps")
+        .select("order_by, description, llm_user_prompt, llm_system_prompt")
+        .eq("humor_flavor_id", flavor.id)
+        .order("order_by", { ascending: true });
+      sourceStepsError = fallbackResult.error;
+      sourceSteps = (fallbackResult.data ?? []).map((step) => ({
+        position: Number(step.order_by ?? 0),
+        title: String(step.description ?? step.llm_system_prompt ?? "Untitled step"),
+        instruction: String(step.llm_user_prompt ?? step.llm_system_prompt ?? ""),
+      }));
+    }
 
     if (sourceStepsError) {
       setStatus(`Flavor duplicated, but source steps could not be loaded: ${sourceStepsError.message}`);
@@ -693,6 +690,26 @@ export default function Page() {
           instruction: step.instruction,
         }));
         const fallbackResult = await supabase.from("humor_flavor_steps").insert(fallbackSteps);
+        duplicatedStepsError = fallbackResult.error;
+      }
+
+      if (
+        duplicatedStepsError &&
+        (isColumnMissingError(duplicatedStepsError.message, "flavor_id") ||
+          isColumnMissingError(duplicatedStepsError.message, "position") ||
+          isColumnMissingError(duplicatedStepsError.message, "title") ||
+          isColumnMissingError(duplicatedStepsError.message, "instruction"))
+      ) {
+        const newestSchemaSteps = (sourceSteps ?? []).map((step) => ({
+          humor_flavor_id: createdFlavor.id,
+          order_by: step.position,
+          description: step.title,
+          llm_user_prompt: step.instruction,
+          llm_system_prompt: step.instruction,
+          created_by_user_id: profile.id,
+          modified_by_user_id: profile.id,
+        }));
+        const fallbackResult = await supabase.from("humor_flavor_steps").insert(newestSchemaSteps);
         duplicatedStepsError = fallbackResult.error;
       }
 
@@ -740,6 +757,25 @@ export default function Page() {
       error = fallbackResult.error;
     }
 
+    if (
+      error &&
+      (isColumnMissingError(error.message, "flavor_id") ||
+        isColumnMissingError(error.message, "position") ||
+        isColumnMissingError(error.message, "title") ||
+        isColumnMissingError(error.message, "instruction"))
+    ) {
+      const fallbackResult = await supabase.from("humor_flavor_steps").insert({
+        humor_flavor_id: selectedFlavorId,
+        order_by: nextPos,
+        description: stepTitle.trim(),
+        llm_user_prompt: stepInstruction.trim(),
+        llm_system_prompt: stepInstruction.trim(),
+        created_by_user_id: profile.id,
+        modified_by_user_id: profile.id,
+      });
+      error = fallbackResult.error;
+    }
+
     if (error) {
       setStatus(error.message);
       return;
@@ -767,6 +803,23 @@ export default function Page() {
       const fallbackResult = await supabase
         .from("humor_flavor_steps")
         .update({ title, instruction })
+        .eq("id", step.id);
+      error = fallbackResult.error;
+    }
+
+    if (
+      error &&
+      (isColumnMissingError(error.message, "title") ||
+        isColumnMissingError(error.message, "instruction"))
+    ) {
+      const fallbackResult = await supabase
+        .from("humor_flavor_steps")
+        .update({
+          description: title,
+          llm_user_prompt: instruction,
+          llm_system_prompt: instruction,
+          modified_by_user_id: profile.id,
+        })
         .eq("id", step.id);
       error = fallbackResult.error;
     }
@@ -819,6 +872,13 @@ export default function Page() {
         const fallbackResult = await supabase
           .from("humor_flavor_steps")
           .update({ position: update.position })
+          .eq("id", update.id);
+        error = fallbackResult.error;
+      }
+      if (error && isColumnMissingError(error.message, "position")) {
+        const fallbackResult = await supabase
+          .from("humor_flavor_steps")
+          .update({ order_by: update.position, modified_by_user_id: profile.id })
           .eq("id", update.id);
         error = fallbackResult.error;
       }
@@ -942,33 +1002,59 @@ export default function Page() {
         { imageId: resolvedImageId, humor_flavor_id: selectedFlavor.id },
       ];
 
-      let payload: unknown = null;
+      const targetCaptionCount = Math.min(20, Math.max(1, captionCount));
+      const collectedPayloads: unknown[] = [];
+      const collectedCaptions: string[] = [];
       let generationSucceeded = false;
       let lastGenerateError = "";
 
       setGenerationProgress(60);
       setGenerationStage("Generating captions...");
-      for (const requestBody of generateBodies) {
-        const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
-          method: "POST",
-          headers: authHeaders,
-          body: JSON.stringify(requestBody),
-        });
+      const maxRounds = Math.min(6, targetCaptionCount);
 
-        if (captionsResponse.ok) {
-          payload = (await captionsResponse.json()) as unknown;
-          generationSucceeded = true;
-          break;
+      for (let round = 0; round < maxRounds && collectedCaptions.length < targetCaptionCount; round += 1) {
+        for (const requestBody of generateBodies) {
+          const captionsResponse = await fetch(`${API_BASE_URL}/pipeline/generate-captions`, {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({
+              ...requestBody,
+              captionCount: targetCaptionCount,
+              numCaptions: targetCaptionCount,
+              maxCaptions: targetCaptionCount,
+            }),
+          });
+
+          if (captionsResponse.ok) {
+            const roundPayload = (await captionsResponse.json()) as unknown;
+            collectedPayloads.push(roundPayload);
+            const foundCaptions = extractCaptions(roundPayload);
+            for (const caption of foundCaptions) {
+              if (!collectedCaptions.includes(caption)) {
+                collectedCaptions.push(caption);
+              }
+              if (collectedCaptions.length >= targetCaptionCount) break;
+            }
+            generationSucceeded = true;
+            break;
+          }
+
+          const body = await parseApiBody(captionsResponse);
+          lastGenerateError = typeof body === "string" ? body : JSON.stringify(body);
         }
-
-        const body = await parseApiBody(captionsResponse);
-        lastGenerateError = typeof body === "string" ? body : JSON.stringify(body);
       }
 
-      if (!generationSucceeded) {
+      if (!generationSucceeded || collectedCaptions.length === 0) {
         setStatus(`Step 4 failed: ${lastGenerateError}`);
         return;
       }
+
+      const payload: unknown = {
+        requestedCaptionCount: targetCaptionCount,
+        generatedCaptionCount: collectedCaptions.length,
+        captions: collectedCaptions.slice(0, targetCaptionCount),
+        attempts: collectedPayloads,
+      };
 
       const clientRun: CaptionRun = {
         id: `local-${Date.now()}`,
@@ -1059,22 +1145,6 @@ export default function Page() {
     reader.readAsDataURL(file);
   }
 
-  async function onImageFileSelected(file: File | null) {
-    if (!file) {
-      setUploadedImageDataUrl('');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === 'string') {
-        setUploadedImageDataUrl(result);
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-
   if (loading) {
     return <main className="container">Loading...</main>;
   }
@@ -1129,13 +1199,6 @@ export default function Page() {
           </button>
         )}
       </div>
-
-      {user && profile && (
-        <p className="small">
-          Admin flags: superadmin={String(profile.is_superadmin)} matrix_admin=
-          {String(profile.is_matrix_admin)}
-        </p>
-      )}
 
       {!user && <p>Please sign in with Google to continue.</p>}
 
@@ -1294,6 +1357,16 @@ export default function Page() {
                 )}
                 <form className="grid" onSubmit={testFlavor}>
                   <label className="row">
+                    <span>Number of captions:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={captionCount}
+                      onChange={(e) => setCaptionCount(Number(e.target.value) || 1)}
+                    />
+                  </label>
+                  <label className="row">
                     <span>Upload image:</span>
                     <input
                       type="file"
@@ -1381,9 +1454,22 @@ export default function Page() {
             </div>
             <h3>🗺️ Steps key</h3>
             <ol>
-              <li>Take in an image and output a description in text.</li>
-              <li>Take output from step 1 and output something funny about it.</li>
-              <li>Take output from step 2 and output five short, funny captions.</li>
+              <li>
+                <strong>Create:</strong> Create a flavor!
+              </li>
+              <li>
+                <strong>Flavors:</strong> Find your new flavor!
+              </li>
+              <li>
+                <strong>Steps:</strong> Create some instructions. What theme do you want your captions
+                to be? The AI will follow those instructions to create your perfect captions.
+              </li>
+              <li>
+                <strong>Test:</strong> Test it out!
+              </li>
+              <li>
+                <strong>Runs:</strong> Check out your recently generated captions!
+              </li>
             </ol>
           </aside>
         </div>
