@@ -555,7 +555,11 @@ export default function Page() {
 
   async function createFlavor(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !profile || !newFlavorName.trim()) return;
+    if (!supabase || !profile || !newFlavorSlug.trim()) return;
+
+    setCreateFlavorNotice("");
+
+    setCreateFlavorNotice("");
 
     setCreateFlavorNotice("");
 
@@ -993,7 +997,7 @@ export default function Page() {
       }
     }
 
-    await loadSteps(step.flavor_id);
+    await loadSteps(String(step.humor_flavor_id));
   }
 
   async function testFlavor(e: FormEvent) {
